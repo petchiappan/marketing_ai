@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard – Agent Control Center</title>
+    <link rel="stylesheet" href="/static/css/admin.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+</head>
+<body>
+    <div class="app-layout">
+        <!-- ─── Sidebar ─── -->
+        <aside class="sidebar glass" id="sidebar">
+            <div class="sidebar-header">
+                <span class="logo-icon">🤖</span>
+                <h2 class="sidebar-title">Control Center</h2>
+                <button class="sidebar-toggle" id="sidebar-toggle" title="Toggle sidebar">☰</button>
+            </div>
+            <nav class="sidebar-nav">
+                <a href="#dashboard" class="nav-link active" data-section="dashboard">
+                    <span class="nav-icon">📊</span><span class="nav-text">Dashboard</span>
+                </a>
+                <a href="#tools" class="nav-link" data-section="tools">
+                    <span class="nav-icon">🔧</span><span class="nav-text">Tool Config</span>
+                </a>
+                <a href="#rate-limits" class="nav-link" data-section="rate-limits">
+                    <span class="nav-icon">⚡</span><span class="nav-text">Rate Limits</span>
+                </a>
+                <a href="#token-usage" class="nav-link" data-section="token-usage">
+                    <span class="nav-icon">🪙</span><span class="nav-text">Token Usage</span>
+                </a>
+                <a href="#agent-runs" class="nav-link" data-section="agent-runs">
+                    <span class="nav-icon">🏃</span><span class="nav-text">Agent Runs</span>
+                </a>
+                <a href="#trace-viewer" class="nav-link" data-section="trace-viewer">
+                    <span class="nav-icon">🔍</span><span class="nav-text">Trace Viewer</span>
+                </a>
+            </nav>
+            <div class="sidebar-footer">
+                <div class="user-info" id="user-info">
+                    <span class="user-avatar">👤</span>
+                    <span class="user-name" id="user-name">Loading…</span>
+                </div>
+                <button class="btn btn-sm btn-outline" id="logout-btn">Logout</button>
+            </div>
+        </aside>
+
+        <!-- ─── Main Content ─── -->
+        <main class="main-content" id="main-content">
+
+            <!-- Dashboard Section -->
+            <section class="content-section active" id="section-dashboard">
+                <div class="section-header">
+                    <h1>Dashboard</h1>
+                    <span class="badge badge-live" id="live-indicator">● Live</span>
+                </div>
+
+                <!-- KPI Cards -->
+                <div class="kpi-grid">
+                    <div class="kpi-card glass">
+                        <div class="kpi-icon">📨</div>
+                        <div class="kpi-body">
+                            <span class="kpi-value" id="kpi-total-requests">—</span>
+                            <span class="kpi-label">Total Requests</span>
+                        </div>
+                    </div>
+                    <div class="kpi-card glass">
+                        <div class="kpi-icon">🏃</div>
+                        <div class="kpi-body">
+                            <span class="kpi-value" id="kpi-active-runs">—</span>
+                            <span class="kpi-label">Active Agent Runs</span>
+                        </div>
+                    </div>
+                    <div class="kpi-card glass">
+                        <div class="kpi-icon">🪙</div>
+                        <div class="kpi-body">
+                            <span class="kpi-value" id="kpi-tokens-24h">—</span>
+                            <span class="kpi-label">Tokens (24h)</span>
+                        </div>
+                    </div>
+                    <div class="kpi-card glass">
+                        <div class="kpi-icon">💚</div>
+                        <div class="kpi-body">
+                            <span class="kpi-value" id="kpi-tools-healthy">—</span>
+                            <span class="kpi-label">Tools Healthy</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Charts row -->
+                <div class="chart-row">
+                    <div class="chart-card glass">
+                        <h3>Request Status Distribution</h3>
+                        <canvas id="chart-status" height="250"></canvas>
+                    </div>
+                    <div class="chart-card glass">
+                        <h3>Tool Health Overview</h3>
+                        <canvas id="chart-tool-health" height="250"></canvas>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Tool Config Section -->
+            <section class="content-section" id="section-tools">
+                <div class="section-header">
+                    <h1>Tool Configuration</h1>
+                    <button class="btn btn-primary btn-sm" id="add-tool-btn">+ Add Tool</button>
+                </div>
+                <div class="tool-grid" id="tool-grid">
+                    <!-- Populated via JS -->
+                </div>
+            </section>
+
+            <!-- Rate Limits Section -->
+            <section class="content-section" id="section-rate-limits">
+                <div class="section-header">
+                    <h1>Rate Limits</h1>
+                </div>
+                <div class="table-wrapper glass">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Provider</th>
+                                <th>Requests / Min</th>
+                                <th>Burst Limit</th>
+                                <th>Daily Quota</th>
+                                <th>Enabled</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="rate-limits-tbody">
+                            <!-- Populated via JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Token Usage Section -->
+            <section class="content-section" id="section-token-usage">
+                <div class="section-header">
+                    <h1>LLM Token Usage</h1>
+                    <select class="select-days" id="token-days">
+                        <option value="7">Last 7 days</option>
+                        <option value="30" selected>Last 30 days</option>
+                        <option value="90">Last 90 days</option>
+                    </select>
+                </div>
+                <div class="chart-card glass" style="margin-bottom: 1.5rem;">
+                    <canvas id="chart-tokens" height="300"></canvas>
+                </div>
+                <div class="table-wrapper glass">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Agent</th>
+                                <th>Model</th>
+                                <th>Prompt Tokens</th>
+                                <th>Completion Tokens</th>
+                                <th>Total</th>
+                                <th>Est. Cost (USD)</th>
+                                <th>API Calls</th>
+                            </tr>
+                        </thead>
+                        <tbody id="token-usage-tbody">
+                            <!-- Populated via JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Agent Runs Section -->
+            <section class="content-section" id="section-agent-runs">
+                <div class="section-header">
+                    <h1>Agent Runs</h1>
+                    <div class="filter-group">
+                        <select id="filter-agent-status">
+                            <option value="">All Statuses</option>
+                            <option value="queued">Queued</option>
+                            <option value="running">Running</option>
+                            <option value="completed">Completed</option>
+                            <option value="failed">Failed</option>
+                            <option value="timeout">Timeout</option>
+                        </select>
+                        <select id="filter-agent-name">
+                            <option value="">All Agents</option>
+                            <option value="contact_agent">Contact Agent</option>
+                            <option value="news_agent">News Agent</option>
+                            <option value="financial_agent">Financial Agent</option>
+                            <option value="aggregation_agent">Aggregation Agent</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="table-wrapper glass">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Agent</th>
+                                <th>Status</th>
+                                <th>Started</th>
+                                <th>Duration</th>
+                                <th>Error</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="agent-runs-tbody">
+                            <!-- Populated via JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Trace Viewer Section -->
+            <section class="content-section" id="section-trace-viewer">
+                <div class="section-header">
+                    <h1>Trace Viewer</h1>
+                </div>
+                <div class="trace-detail glass" id="trace-detail">
+                    <p class="trace-placeholder">Select a failed agent run from the Agent Runs tab to view its trace.</p>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Modal overlay for editing -->
+    <div class="modal-overlay hidden" id="modal-overlay">
+        <div class="modal glass" id="modal">
+            <div class="modal-header">
+                <h2 id="modal-title">Edit</h2>
+                <button class="modal-close" id="modal-close">&times;</button>
+            </div>
+            <div class="modal-body" id="modal-body">
+                <!-- Dynamic content -->
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" id="modal-cancel">Cancel</button>
+                <button class="btn btn-primary" id="modal-save">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/admin.js"></script>
+</body>
+</html>

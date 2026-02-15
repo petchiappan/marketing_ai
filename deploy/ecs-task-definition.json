@@ -1,0 +1,75 @@
+{
+  "family": "marketing-ai",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "256",
+  "memory": "512",
+  "executionRoleArn": "arn:aws:iam::<ACCOUNT_ID>:role/ecsTaskExecutionRole",
+  "taskRoleArn": "arn:aws:iam::<ACCOUNT_ID>:role/ecsTaskRole",
+  "containerDefinitions": [
+    {
+      "name": "marketing-ai",
+      "image": "<ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/marketing-ai:latest",
+      "essential": true,
+      "portMappings": [
+        {
+          "containerPort": 8000,
+          "protocol": "tcp"
+        }
+      ],
+      "healthCheck": {
+        "command": ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 15
+      },
+      "environment": [
+        { "name": "PYTHONUNBUFFERED", "value": "1" }
+      ],
+      "secrets": [
+        {
+          "name": "DATABASE_URL",
+          "valueFrom": "arn:aws:ssm:<REGION>:<ACCOUNT_ID>:parameter/marketing-ai/DATABASE_URL"
+        },
+        {
+          "name": "REDIS_URL",
+          "valueFrom": "arn:aws:ssm:<REGION>:<ACCOUNT_ID>:parameter/marketing-ai/REDIS_URL"
+        },
+        {
+          "name": "JWT_SECRET_KEY",
+          "valueFrom": "arn:aws:ssm:<REGION>:<ACCOUNT_ID>:parameter/marketing-ai/JWT_SECRET_KEY"
+        },
+        {
+          "name": "OPENAI_API_KEY",
+          "valueFrom": "arn:aws:ssm:<REGION>:<ACCOUNT_ID>:parameter/marketing-ai/OPENAI_API_KEY"
+        },
+        {
+          "name": "TOOL_SECRET_ENCRYPTION_KEY",
+          "valueFrom": "arn:aws:ssm:<REGION>:<ACCOUNT_ID>:parameter/marketing-ai/TOOL_SECRET_ENCRYPTION_KEY"
+        },
+        {
+          "name": "AZURE_AD_TENANT_ID",
+          "valueFrom": "arn:aws:ssm:<REGION>:<ACCOUNT_ID>:parameter/marketing-ai/AZURE_AD_TENANT_ID"
+        },
+        {
+          "name": "AZURE_AD_CLIENT_ID",
+          "valueFrom": "arn:aws:ssm:<REGION>:<ACCOUNT_ID>:parameter/marketing-ai/AZURE_AD_CLIENT_ID"
+        },
+        {
+          "name": "AZURE_AD_CLIENT_SECRET",
+          "valueFrom": "arn:aws:ssm:<REGION>:<ACCOUNT_ID>:parameter/marketing-ai/AZURE_AD_CLIENT_SECRET"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/marketing-ai",
+          "awslogs-region": "<REGION>",
+          "awslogs-stream-prefix": "ecs",
+          "awslogs-create-group": "true"
+        }
+      }
+    }
+  ]
+}

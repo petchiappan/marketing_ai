@@ -1,0 +1,67 @@
+"""Application settings loaded from environment variables."""
+
+from pydantic_settings import BaseSettings
+from pydantic import Field
+
+
+class Settings(BaseSettings):
+    """Central configuration – reads from .env or environment variables."""
+
+    # ── Database ──
+    database_url: str = Field(
+        default="postgresql+asyncpg://postgres:postgres@localhost:5432/marketing_ai",
+        alias="DATABASE_URL",
+    )
+
+    # ── Redis ──
+    redis_url: str = Field(default="redis://localhost:6379/0", alias="REDIS_URL")
+
+    # ── JWT / Auth ──
+    jwt_secret_key: str = Field(default="change-me", alias="JWT_SECRET_KEY")
+    jwt_algorithm: str = Field(default="HS256", alias="JWT_ALGORITHM")
+    jwt_expire_hours: int = Field(default=8, alias="JWT_EXPIRE_HOURS")
+
+    # ── Azure AD OIDC ──
+    azure_ad_tenant_id: str = Field(default="", alias="AZURE_AD_TENANT_ID")
+    azure_ad_client_id: str = Field(default="", alias="AZURE_AD_CLIENT_ID")
+    azure_ad_client_secret: str = Field(default="", alias="AZURE_AD_CLIENT_SECRET")
+    azure_ad_redirect_uri: str = Field(
+        default="http://localhost:8000/admin/auth/azure/callback",
+        alias="AZURE_AD_REDIRECT_URI",
+    )
+
+    # ── Encryption key for tool API secrets ──
+    tool_secret_encryption_key: str = Field(
+        default="", alias="TOOL_SECRET_ENCRYPTION_KEY"
+    )
+
+    # ── Default admin ──
+    default_admin_email: str = Field(
+        default="admin@localhost", alias="DEFAULT_ADMIN_EMAIL"
+    )
+    default_admin_password: str = Field(
+        default="changeme123", alias="DEFAULT_ADMIN_PASSWORD"
+    )
+
+    # ── Salesforce ──
+    salesforce_username: str = Field(default="", alias="SALESFORCE_USERNAME")
+    salesforce_password: str = Field(default="", alias="SALESFORCE_PASSWORD")
+    salesforce_security_token: str = Field(
+        default="", alias="SALESFORCE_SECURITY_TOKEN"
+    )
+    salesforce_domain: str = Field(default="login", alias="SALESFORCE_DOMAIN")
+
+    # ── LLM ──
+    openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
+    openai_model_name: str = Field(default="gpt-4o-mini", alias="OPENAI_MODEL_NAME")
+
+    # ── Cache TTLs (seconds) ──
+    cache_ttl_contacts: int = 86_400   # 24 h
+    cache_ttl_news: int = 14_400       # 4 h
+    cache_ttl_financial: int = 43_200  # 12 h
+    cache_ttl_metadata: int = 604_800  # 7 d
+
+    model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
+
+
+settings = Settings()

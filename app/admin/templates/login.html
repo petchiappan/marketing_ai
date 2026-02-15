@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login – Agent Control Center</title>
+    <link rel="stylesheet" href="/static/css/admin.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body class="login-body">
+    <div class="login-container">
+        <!-- Ambient glow decoration -->
+        <div class="glow glow-1"></div>
+        <div class="glow glow-2"></div>
+
+        <div class="login-card glass">
+            <div class="login-header">
+                <div class="logo-icon">🤖</div>
+                <h1>Agent Control Center</h1>
+                <p class="subtitle">Marketing AI Lead Enrichment</p>
+            </div>
+
+            <!-- Local Login Form -->
+            <form id="local-login-form" class="login-form">
+                <div class="form-group">
+                    <label for="email">Email</label>
+                    <input type="email" id="email" name="email" placeholder="admin@company.com" required autocomplete="email">
+                </div>
+                <div class="form-group">
+                    <label for="password">Password</label>
+                    <input type="password" id="password" name="password" placeholder="••••••••" required autocomplete="current-password">
+                </div>
+                <button type="submit" class="btn btn-primary btn-block" id="login-btn">
+                    <span class="btn-text">Sign In</span>
+                    <span class="btn-loader hidden">⟳</span>
+                </button>
+            </form>
+
+            <div id="login-error" class="alert alert-error hidden"></div>
+
+            <!-- Divider -->
+            <div class="divider">
+                <span>or continue with</span>
+            </div>
+
+            <!-- Azure AD Login -->
+            <a href="/admin/auth/azure" class="btn btn-outline btn-block azure-btn">
+                <svg width="20" height="20" viewBox="0 0 21 21" xmlns="http://www.w3.org/2000/svg">
+                    <rect x="1" y="1" width="9" height="9" fill="#f25022"/>
+                    <rect x="11" y="1" width="9" height="9" fill="#7fba00"/>
+                    <rect x="1" y="11" width="9" height="9" fill="#00a4ef"/>
+                    <rect x="11" y="11" width="9" height="9" fill="#ffb900"/>
+                </svg>
+                <span>Microsoft Azure AD</span>
+            </a>
+        </div>
+
+        <p class="footer-text">Powered by CrewAI &amp; FastAPI</p>
+    </div>
+
+    <script>
+        document.getElementById('local-login-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const btn = document.getElementById('login-btn');
+            const errorEl = document.getElementById('login-error');
+            errorEl.classList.add('hidden');
+            btn.disabled = true;
+            btn.querySelector('.btn-text').textContent = 'Signing in…';
+
+            try {
+                const resp = await fetch('/admin/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        email: document.getElementById('email').value,
+                        password: document.getElementById('password').value,
+                    }),
+                });
+
+                if (resp.ok) {
+                    window.location.href = '/admin';
+                } else {
+                    const data = await resp.json();
+                    errorEl.textContent = data.detail || 'Login failed';
+                    errorEl.classList.remove('hidden');
+                }
+            } catch (err) {
+                errorEl.textContent = 'Network error – please try again';
+                errorEl.classList.remove('hidden');
+            } finally {
+                btn.disabled = false;
+                btn.querySelector('.btn-text').textContent = 'Sign In';
+            }
+        });
+    </script>
+</body>
+</html>
