@@ -127,6 +127,7 @@ async def list_enrichment_requests(
             "company_name": r.company_name,
             "source": r.source,
             "status": r.status,
+            "requested_by": r.requested_by,
             "created_at": r.created_at.isoformat(),
         }
         for r in requests

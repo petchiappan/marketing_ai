@@ -76,6 +76,7 @@ function switchSection(sectionName) {
         'rate-limits': loadRateLimits,
         'token-usage': loadTokenUsage,
         'agent-runs': loadAgentRuns,
+        'job-queue': loadJobQueue,
     };
     if (loaders[sectionName]) loaders[sectionName]();
 }
@@ -530,6 +531,12 @@ async function loadAgentRuns() {
     if (statusFilter) url += `&status_filter=${statusFilter}`;
     if (agentFilter) url += `&agent_name=${agentFilter}`;
 
+    // Support filtering by request_id (from Job Queue → View Runs)
+    if (window._filterByRequestId) {
+        url += `&request_id=${window._filterByRequestId}`;
+        window._filterByRequestId = null;  // Clear after use
+    }
+
     try {
         const resp = await fetch(url);
         const runs = await resp.json();
@@ -691,5 +698,86 @@ function startAutoRefresh() {
         const activeSection = document.querySelector('.content-section.active');
         if (activeSection?.id === 'section-dashboard') loadDashboard();
         if (activeSection?.id === 'section-agent-runs') loadAgentRuns();
+        if (activeSection?.id === 'section-job-queue') loadJobQueue();
     }, 30000);
 }
+
+// ════════════════════════════════════════════════════════════════════════
+// JOB QUEUE
+// ════════════════════════════════════════════════════════════════════════
+
+async function loadJobQueue() {
+    const statusFilter = document.getElementById('filter-job-status').value;
+    let url = '/api/enrich/?limit=100';
+    if (statusFilter) url += `&status_filter=${statusFilter}`;
+
+    try {
+        const resp = await fetch(url);
+        const jobs = await resp.json();
+        const tbody = document.getElementById('job-queue-tbody');
+
+        if (!jobs.length) {
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-muted)">No enrichment requests found.</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = jobs.map(job => {
+            const canRun = job.status === 'pending' || job.status === 'failed';
+            const runBtn = canRun
+                ? `<button class="btn btn-sm btn-primary" onclick="triggerEnrichment('${job.id}')">▶ Run</button>`
+                : job.status === 'processing'
+                    ? `<span style="color:var(--text-muted)">⏳ Running…</span>`
+                    : '';
+
+            const hasRuns = job.status !== 'pending';
+            const viewBtn = hasRuns
+                ? `<button class="btn btn-sm btn-outline" onclick="viewJobRuns('${job.id}')">🔍 Traces</button>`
+                : '';
+
+            return `
+                <tr>
+                    <td><strong>${escapeHtml(job.company_name)}</strong></td>
+                    <td>${escapeHtml(job.source)}</td>
+                    <td><span class="badge badge-${job.status}">${job.status}</span></td>
+                    <td>${job.requested_by ? escapeHtml(job.requested_by) : '—'}</td>
+                    <td>${new Date(job.created_at).toLocaleString()}</td>
+                    <td>${runBtn} ${viewBtn}</td>
+                </tr>
+            `;
+        }).join('');
+    } catch (err) {
+        console.error('Job queue load error:', err);
+    }
+}
+
+async function triggerEnrichment(requestId) {
+    if (!confirm('Start enrichment processing for this request?')) return;
+
+    try {
+        const resp = await fetch(`/admin/api/trigger-enrichment/${requestId}`, {
+            method: 'POST',
+        });
+        const data = await resp.json();
+
+        if (!resp.ok) {
+            alert(data.detail || 'Failed to trigger enrichment');
+            return;
+        }
+
+        alert(data.message || 'Enrichment triggered successfully!');
+        loadJobQueue();
+    } catch (err) {
+        console.error('Trigger enrichment error:', err);
+        alert('Failed to trigger enrichment. Check console for details.');
+    }
+}
+
+// Navigate to agent runs filtered by a specific enrichment request
+function viewJobRuns(requestId) {
+    // Store the request ID so loadAgentRuns can use it
+    window._filterByRequestId = requestId;
+    switchSection('agent-runs');
+}
+
+// Filter listener
+document.getElementById('filter-job-status')?.addEventListener('change', loadJobQueue);

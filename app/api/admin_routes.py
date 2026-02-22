@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -338,12 +338,14 @@ async def list_agent_runs(
     offset: int = 0,
     status_filter: str | None = None,
     agent_name: str | None = None,
+    request_id: str | None = None,
     user: AdminUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """List agent runs with optional filters."""
     runs = await repo.list_agent_runs(
-        db, limit=limit, offset=offset, status=status_filter, agent_name=agent_name
+        db, limit=limit, offset=offset, status=status_filter, agent_name=agent_name,
+        request_id=uuid.UUID(request_id) if request_id else None,
     )
     return [
         {
@@ -445,4 +447,41 @@ async def dashboard_kpis(
         "active_agent_runs": active_runs,
         "tokens_last_24h": tokens_24h,
         "tool_health": health_summary,
+    }
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# Trigger Enrichment
+# ────────────────────────────────────────────────────────────────────────────
+
+@router.post("/admin/api/trigger-enrichment/{request_id}", status_code=status.HTTP_202_ACCEPTED)
+async def trigger_enrichment(
+    request_id: uuid.UUID,
+    background_tasks: BackgroundTasks,
+    user: AdminUser = Depends(require_editor_or_above),
+    db: AsyncSession = Depends(get_db),
+):
+    """Manually trigger enrichment processing for a queued request."""
+    req = await repo.get_request(db, request_id)
+    if not req:
+        raise HTTPException(status_code=404, detail="Enrichment request not found")
+    if req.status not in ("pending", "failed"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot trigger enrichment for request with status '{req.status}'. Only 'pending' or 'failed' requests can be triggered.",
+        )
+
+    # Mark as processing immediately
+    await repo.update_request_status(db, request_id, "processing")
+    await db.commit()
+
+    # Kick off the pipeline in the background
+    from app.agents.pipeline import run_enrichment_pipeline
+
+    background_tasks.add_task(run_enrichment_pipeline, request_id)
+
+    return {
+        "message": f"Enrichment triggered for '{req.company_name}'",
+        "request_id": str(request_id),
+        "status": "processing",
     }

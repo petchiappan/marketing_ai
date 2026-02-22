@@ -1,14 +1,18 @@
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dashboard – Agent Control Center</title>
     <link rel="stylesheet" href="/static/css/admin.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+        rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 </head>
+
 <body>
     <div class="app-layout">
         <!-- ─── Sidebar ─── -->
@@ -36,6 +40,9 @@
                 </a>
                 <a href="#trace-viewer" class="nav-link" data-section="trace-viewer">
                     <span class="nav-icon">🔍</span><span class="nav-text">Trace Viewer</span>
+                </a>
+                <a href="#job-queue" class="nav-link" data-section="job-queue">
+                    <span class="nav-icon">📋</span><span class="nav-text">Job Queue</span>
                 </a>
             </nav>
             <div class="sidebar-footer">
@@ -217,7 +224,40 @@
                     <h1>Trace Viewer</h1>
                 </div>
                 <div class="trace-detail glass" id="trace-detail">
-                    <p class="trace-placeholder">Select a failed agent run from the Agent Runs tab to view its trace.</p>
+                    <p class="trace-placeholder">Select a failed agent run from the Agent Runs tab to view its trace.
+                    </p>
+                </div>
+            </section>
+
+            <!-- Job Queue Section -->
+            <section class="content-section" id="section-job-queue">
+                <div class="section-header">
+                    <h1>Job Queue</h1>
+                    <select id="filter-job-status">
+                        <option value="">All Statuses</option>
+                        <option value="pending" selected>Pending</option>
+                        <option value="processing">Processing</option>
+                        <option value="completed">Completed</option>
+                        <option value="failed">Failed</option>
+                        <option value="partial">Partial</option>
+                    </select>
+                </div>
+                <div class="table-wrapper glass">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Company</th>
+                                <th>Source</th>
+                                <th>Status</th>
+                                <th>Requested By</th>
+                                <th>Created</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="job-queue-tbody">
+                            <!-- Populated via JS -->
+                        </tbody>
+                    </table>
                 </div>
             </section>
         </main>
@@ -242,4 +282,5 @@
 
     <script src="/static/js/admin.js"></script>
 </body>
+
 </html>

@@ -316,12 +316,15 @@ async def list_agent_runs(
     offset: int = 0,
     status: str | None = None,
     agent_name: str | None = None,
+    request_id: uuid.UUID | None = None,
 ) -> Sequence[AgentRun]:
     stmt = select(AgentRun).order_by(AgentRun.created_at.desc())
     if status:
         stmt = stmt.where(AgentRun.status == status)
     if agent_name:
         stmt = stmt.where(AgentRun.agent_name == agent_name)
+    if request_id:
+        stmt = stmt.where(AgentRun.request_id == request_id)
     stmt = stmt.limit(limit).offset(offset)
     result = await db.execute(stmt)
     return result.scalars().all()
