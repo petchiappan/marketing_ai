@@ -266,6 +266,7 @@ class ToolConfig(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     tool_name = Column(String(50), nullable=False, unique=True)
     display_name = Column(String(100), nullable=False)
+    agent_name = Column(String(50), nullable=True)
     base_url = Column(String(1000))
     api_key_encrypted = Column(Text)
     auth_type = Column(String(30), default="api_key")

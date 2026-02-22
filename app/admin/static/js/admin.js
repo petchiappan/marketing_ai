@@ -16,6 +16,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     setupSidebar();
     setupLogout();
     setupModal();
+    document.getElementById('add-tool-btn').addEventListener('click', addTool);
     await loadDashboard();
     startAutoRefresh();
 });
@@ -180,6 +181,20 @@ function renderHealthChart(health) {
 // TOOL CONFIG
 // ════════════════════════════════════════════════════════════════════════
 
+const AGENT_OPTIONS = [
+    { value: '', label: '— None —' },
+    { value: 'contact_agent', label: 'Contact Agent' },
+    { value: 'news_agent', label: 'News Agent' },
+    { value: 'financial_agent', label: 'Financial Agent' },
+    { value: 'aggregation_agent', label: 'Aggregation Agent' },
+];
+
+function agentSelectHtml(selectedValue) {
+    return AGENT_OPTIONS.map(o =>
+        `<option value="${o.value}" ${o.value === (selectedValue || '') ? 'selected' : ''}>${o.label}</option>`
+    ).join('');
+}
+
 async function loadTools() {
     try {
         const resp = await fetch('/admin/api/tools');
@@ -192,6 +207,7 @@ async function loadTools() {
 }
 
 function renderToolCard(tool) {
+    const agentLabel = AGENT_OPTIONS.find(o => o.value === tool.agent_name)?.label || tool.agent_name || '— None —';
     return `
         <div class="tool-card glass">
             <div class="tool-card-header">
@@ -200,6 +216,7 @@ function renderToolCard(tool) {
             </div>
             <div class="tool-card-body">
                 <div><span class="field-label">Name:</span> ${escapeHtml(tool.tool_name)}</div>
+                <div><span class="field-label">Agent:</span> ${escapeHtml(agentLabel)}</div>
                 <div><span class="field-label">Base URL:</span> ${tool.base_url ? escapeHtml(tool.base_url) : '—'}</div>
                 <div><span class="field-label">Auth:</span> ${tool.auth_type}</div>
                 <div><span class="field-label">API Key:</span> ${tool.has_api_key ? '✅ Configured' : '❌ Not set'}</div>
@@ -219,6 +236,75 @@ function renderToolCard(tool) {
     `;
 }
 
+function addTool() {
+    openModal('Add New Tool', `
+        <div class="form-group">
+            <label>Tool Name <span style="color:#ef4444">*</span></label>
+            <input id="add-tool-name" placeholder="e.g. lusha, apollo">
+        </div>
+        <div class="form-group">
+            <label>Display Name</label>
+            <input id="add-display-name" placeholder="Tool display name">
+        </div>
+        <div class="form-group">
+            <label>Agent</label>
+            <select id="add-agent-name">${agentSelectHtml('')}</select>
+        </div>
+        <div class="form-group">
+            <label>Base URL</label>
+            <input id="add-base-url" placeholder="https://api.example.com">
+        </div>
+        <div class="form-group">
+            <label>API Key</label>
+            <input id="add-api-key" type="password" placeholder="Enter API key">
+        </div>
+        <div class="form-group">
+            <label>Auth Type</label>
+            <select id="add-auth-type">
+                <option value="api_key">API Key</option>
+                <option value="bearer">Bearer Token</option>
+                <option value="oauth2">OAuth2</option>
+                <option value="basic">Basic Auth</option>
+            </select>
+        </div>
+    `, async () => {
+        const toolName = document.getElementById('add-tool-name').value.trim();
+        if (!toolName) {
+            alert('Tool Name is required.');
+            return;
+        }
+
+        const body = {};
+        const displayName = document.getElementById('add-display-name').value.trim();
+        body.display_name = displayName || toolName;
+        const agentName = document.getElementById('add-agent-name').value;
+        if (agentName) body.agent_name = agentName;
+        const baseUrl = document.getElementById('add-base-url').value.trim();
+        if (baseUrl) body.base_url = baseUrl;
+        const apiKey = document.getElementById('add-api-key').value;
+        if (apiKey) body.api_key = apiKey;
+        body.auth_type = document.getElementById('add-auth-type').value;
+
+        try {
+            const resp = await fetch(`/admin/api/tools/${encodeURIComponent(toolName)}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+            if (!resp.ok) {
+                const err = await resp.json().catch(() => ({}));
+                alert(err.detail || 'Failed to add tool');
+                return;
+            }
+            closeModal();
+            loadTools();
+        } catch (err) {
+            console.error('Add tool error:', err);
+            alert('Failed to add tool. Check console for details.');
+        }
+    });
+}
+
 async function toggleTool(toolName, enabled) {
     await fetch(`/admin/api/tools/${toolName}`, {
         method: 'PUT',
@@ -228,14 +314,26 @@ async function toggleTool(toolName, enabled) {
 }
 
 async function editTool(toolName) {
+    // Fetch current tool data to pre-fill form
+    let currentTool = {};
+    try {
+        const resp = await fetch('/admin/api/tools');
+        const tools = await resp.json();
+        currentTool = tools.find(t => t.tool_name === toolName) || {};
+    } catch (e) { /* ignore, fields will be blank */ }
+
     openModal('Edit Tool: ' + toolName, `
         <div class="form-group">
             <label>Display Name</label>
-            <input id="edit-display-name" placeholder="Tool display name">
+            <input id="edit-display-name" placeholder="Tool display name" value="${escapeHtml(currentTool.display_name || '')}">
+        </div>
+        <div class="form-group">
+            <label>Agent</label>
+            <select id="edit-agent-name">${agentSelectHtml(currentTool.agent_name)}</select>
         </div>
         <div class="form-group">
             <label>Base URL</label>
-            <input id="edit-base-url" placeholder="https://api.example.com">
+            <input id="edit-base-url" placeholder="https://api.example.com" value="${escapeHtml(currentTool.base_url || '')}">
         </div>
         <div class="form-group">
             <label>API Key</label>
@@ -244,19 +342,21 @@ async function editTool(toolName) {
         <div class="form-group">
             <label>Auth Type</label>
             <select id="edit-auth-type">
-                <option value="api_key">API Key</option>
-                <option value="bearer">Bearer Token</option>
-                <option value="oauth2">OAuth2</option>
-                <option value="basic">Basic Auth</option>
+                <option value="api_key" ${currentTool.auth_type === 'api_key' ? 'selected' : ''}>API Key</option>
+                <option value="bearer" ${currentTool.auth_type === 'bearer' ? 'selected' : ''}>Bearer Token</option>
+                <option value="oauth2" ${currentTool.auth_type === 'oauth2' ? 'selected' : ''}>OAuth2</option>
+                <option value="basic" ${currentTool.auth_type === 'basic' ? 'selected' : ''}>Basic Auth</option>
             </select>
         </div>
     `, async () => {
         const body = {};
         const name = document.getElementById('edit-display-name').value;
+        const agentName = document.getElementById('edit-agent-name').value;
         const url = document.getElementById('edit-base-url').value;
         const key = document.getElementById('edit-api-key').value;
         const auth = document.getElementById('edit-auth-type').value;
         if (name) body.display_name = name;
+        body.agent_name = agentName || null;
         if (url) body.base_url = url;
         if (key) body.api_key = key;
         if (auth) body.auth_type = auth;

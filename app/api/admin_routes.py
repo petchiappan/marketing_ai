@@ -159,6 +159,7 @@ async def current_user(user: AdminUser = Depends(get_current_user)):
 
 class ToolConfigUpdate(BaseModel):
     display_name: str | None = None
+    agent_name: str | None = None
     base_url: str | None = None
     api_key: str | None = None
     auth_type: str | None = None
@@ -178,6 +179,7 @@ async def list_tools(
         {
             "tool_name": t.tool_name,
             "display_name": t.display_name,
+            "agent_name": t.agent_name,
             "base_url": t.base_url,
             "auth_type": t.auth_type,
             "is_enabled": t.is_enabled,
@@ -200,6 +202,8 @@ async def update_tool(
     update_data: dict[str, Any] = {}
     if body.display_name is not None:
         update_data["display_name"] = body.display_name
+    if body.agent_name is not None:
+        update_data["agent_name"] = body.agent_name
     if body.base_url is not None:
         update_data["base_url"] = body.base_url
     if body.auth_type is not None:
