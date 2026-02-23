@@ -1,13 +1,20 @@
 """News enrichment agent – researches company news and press."""
 
+from __future__ import annotations
+
 from crewai import Agent
 
 from app.config.settings import settings
-from app.tools.news_search import search_company_news
 
 
-def create_news_agent() -> Agent:
-    """Build the Company News Analyst agent."""
+def create_news_agent(tools: list | None = None, llm: str | None = None) -> Agent:
+    """Build the Company News Analyst agent.
+
+    Args:
+        tools: List of CrewAI tool functions this agent can use.
+        llm: LLM identifier string (e.g. 'gemini/gemini-2.5-flash').
+             Defaults to settings.llm_identifier.
+    """
     return Agent(
         role="Company News Analyst",
         goal=(
@@ -21,9 +28,9 @@ def create_news_agent() -> Agent:
             "(funding, product launch, leadership change, etc.) and "
             "provide sentiment analysis for each piece of news."
         ),
-        tools=[search_company_news],
+        tools=tools or [],
         verbose=True,
         allow_delegation=False,
         max_iter=5,
-        llm=settings.openai_model_name,
+        llm=llm or settings.llm_identifier,
     )

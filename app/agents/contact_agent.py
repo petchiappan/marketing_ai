@@ -1,15 +1,20 @@
 """Contact enrichment agent – finds key decision-maker contacts."""
 
+from __future__ import annotations
+
 from crewai import Agent
 
 from app.config.settings import settings
-from app.tools.lusha import search_lusha
-from app.tools.apollo import search_apollo
-from app.tools.signal_hire import search_signal_hire
 
 
-def create_contact_agent() -> Agent:
-    """Build the Contact Research Specialist agent."""
+def create_contact_agent(tools: list | None = None, llm: str | None = None) -> Agent:
+    """Build the Contact Research Specialist agent.
+
+    Args:
+        tools: List of CrewAI tool functions this agent can use.
+        llm: LLM identifier string (e.g. 'openai/gpt-4o-mini').
+             Defaults to settings.llm_identifier.
+    """
     return Agent(
         role="Contact Research Specialist",
         goal=(
@@ -23,9 +28,9 @@ def create_contact_agent() -> Agent:
             "and assign confidence scores to each contact based on data "
             "freshness and source reliability."
         ),
-        tools=[search_lusha, search_apollo, search_signal_hire],
+        tools=tools or [],
         verbose=True,
         allow_delegation=False,
         max_iter=5,
-        llm=settings.openai_model_name,
+        llm=llm or settings.llm_identifier,
     )

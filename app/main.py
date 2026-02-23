@@ -25,20 +25,23 @@ async def lifespan(app: FastAPI):
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
-    # Seed default admin user
+    # Seed default admin user (try/except handles race condition with multiple workers)
     async with async_session_factory() as db:
         existing = await repo.get_user_by_email(db, settings.default_admin_email)
         if not existing:
-            await repo.create_admin_user(
-                db,
-                email=settings.default_admin_email,
-                username="admin",
-                display_name="Default Admin",
-                password_hash=hash_password(settings.default_admin_password),
-                auth_provider="local",
-                role="admin",
-            )
-            await db.commit()
+            try:
+                await repo.create_admin_user(
+                    db,
+                    email=settings.default_admin_email,
+                    username="admin",
+                    display_name="Default Admin",
+                    password_hash=hash_password(settings.default_admin_password),
+                    auth_provider="local",
+                    role="admin",
+                )
+                await db.commit()
+            except Exception:
+                await db.rollback()  # Another worker already inserted it
 
     yield
 

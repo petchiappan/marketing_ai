@@ -447,6 +447,11 @@ async def dashboard_kpis(
         "active_agent_runs": active_runs,
         "tokens_last_24h": tokens_24h,
         "tool_health": health_summary,
+        "llm": {
+            "provider": settings.llm_provider,
+            "model": settings.llm_model,
+            "identifier": settings.llm_identifier,
+        },
     }
 
 

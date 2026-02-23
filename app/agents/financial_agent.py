@@ -1,13 +1,20 @@
 """Financial enrichment agent – retrieves company financials."""
 
+from __future__ import annotations
+
 from crewai import Agent
 
 from app.config.settings import settings
-from app.tools.financial_data import fetch_financial_data
 
 
-def create_financial_agent() -> Agent:
-    """Build the Financial Data Analyst agent."""
+def create_financial_agent(tools: list | None = None, llm: str | None = None) -> Agent:
+    """Build the Financial Data Analyst agent.
+
+    Args:
+        tools: List of CrewAI tool functions this agent can use.
+        llm: LLM identifier string (e.g. 'anthropic/claude-3-5-sonnet-20241022').
+             Defaults to settings.llm_identifier.
+    """
     return Agent(
         role="Financial Data Analyst",
         goal=(
@@ -21,9 +28,9 @@ def create_financial_agent() -> Agent:
             "financial platforms. You distinguish between verified data "
             "and estimates, and assign confidence scores accordingly."
         ),
-        tools=[fetch_financial_data],
+        tools=tools or [],
         verbose=True,
         allow_delegation=False,
         max_iter=5,
-        llm=settings.openai_model_name,
+        llm=llm or settings.llm_identifier,
     )

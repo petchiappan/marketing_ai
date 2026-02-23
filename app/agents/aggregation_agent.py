@@ -5,8 +5,12 @@ from crewai import Agent
 from app.config.settings import settings
 
 
-def create_aggregation_agent() -> Agent:
-    """Build the Lead Intelligence Synthesizer agent."""
+def create_aggregation_agent(llm: str | None = None) -> Agent:
+    """Build the Lead Intelligence Synthesizer agent.
+
+    Args:
+        llm: LLM identifier string. Defaults to settings.llm_identifier.
+    """
     return Agent(
         role="Lead Intelligence Synthesizer",
         goal=(
@@ -24,5 +28,5 @@ def create_aggregation_agent() -> Agent:
         verbose=True,
         allow_delegation=False,
         max_iter=3,
-        llm=settings.openai_model_name,
+        llm=llm or settings.llm_identifier,
     )

@@ -109,6 +109,11 @@ async function loadDashboard() {
 
         // Health chart
         renderHealthChart(data.tool_health || {});
+
+        // LLM model info
+        if (data.llm) {
+            animateValue('kpi-llm-model', `${data.llm.identifier}`);
+        }
     } catch (err) {
         console.error('Dashboard load error:', err);
     }
