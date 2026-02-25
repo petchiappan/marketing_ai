@@ -1,5 +1,6 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -8,6 +9,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 </head>
+
 <body class="login-body">
     <div class="login-container">
         <!-- Ambient glow decoration -->
@@ -16,7 +18,7 @@
 
         <div class="login-card glass">
             <div class="login-header">
-                <div class="logo-icon">🤖</div>
+                <div class="logo-icon">📣</div>
                 <h1>Agent Control Center</h1>
                 <p class="subtitle">Marketing AI Lead Enrichment</p>
             </div>
@@ -25,11 +27,13 @@
             <form id="local-login-form" class="login-form">
                 <div class="form-group">
                     <label for="email">Email</label>
-                    <input type="email" id="email" name="email" placeholder="admin@company.com" required autocomplete="email">
+                    <input type="email" id="email" name="email" placeholder="admin@company.com" required
+                        autocomplete="email">
                 </div>
                 <div class="form-group">
                     <label for="password">Password</label>
-                    <input type="password" id="password" name="password" placeholder="••••••••" required autocomplete="current-password">
+                    <input type="password" id="password" name="password" placeholder="••••••••" required
+                        autocomplete="current-password">
                 </div>
                 <button type="submit" class="btn btn-primary btn-block" id="login-btn">
                     <span class="btn-text">Sign In</span>
@@ -47,10 +51,10 @@
             <!-- Azure AD Login -->
             <a href="/admin/auth/azure" class="btn btn-outline btn-block azure-btn">
                 <svg width="20" height="20" viewBox="0 0 21 21" xmlns="http://www.w3.org/2000/svg">
-                    <rect x="1" y="1" width="9" height="9" fill="#f25022"/>
-                    <rect x="11" y="1" width="9" height="9" fill="#7fba00"/>
-                    <rect x="1" y="11" width="9" height="9" fill="#00a4ef"/>
-                    <rect x="11" y="11" width="9" height="9" fill="#ffb900"/>
+                    <rect x="1" y="1" width="9" height="9" fill="#f25022" />
+                    <rect x="11" y="1" width="9" height="9" fill="#7fba00" />
+                    <rect x="1" y="11" width="9" height="9" fill="#00a4ef" />
+                    <rect x="11" y="11" width="9" height="9" fill="#ffb900" />
                 </svg>
                 <span>Microsoft Azure AD</span>
             </a>
@@ -95,4 +99,5 @@
         });
     </script>
 </body>
+
 </html>
