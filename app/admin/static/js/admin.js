@@ -142,7 +142,7 @@ function renderStatusChart(counts) {
             plugins: {
                 legend: {
                     position: 'bottom',
-                    labels: { color: '#94a3b8', padding: 15, font: { family: "'Inter'" } }
+                    labels: { color: '#475569', padding: 15, font: { family: "'Inter'" } }
                 }
             }
         }
@@ -169,13 +169,13 @@ function renderHealthChart(health) {
             plugins: { legend: { display: false } },
             scales: {
                 x: {
-                    ticks: { color: '#94a3b8', font: { family: "'Inter'" } },
+                    ticks: { color: '#475569', font: { family: "'Inter'" } },
                     grid: { display: false },
                     border: { display: false },
                 },
                 y: {
-                    ticks: { color: '#64748b', stepSize: 1, font: { family: "'Inter'" } },
-                    grid: { color: 'rgba(148,163,184,0.08)' },
+                    ticks: { color: '#94a3b8', stepSize: 1, font: { family: "'Inter'" } },
+                    grid: { color: 'rgba(37,99,235,0.06)' },
                     border: { display: false },
                 }
             }
@@ -497,13 +497,13 @@ function renderTokenChart(data) {
                 {
                     label: 'Prompt Tokens',
                     data: promptTokens,
-                    backgroundColor: 'rgba(99, 102, 241, 0.7)',
+                    backgroundColor: 'rgba(37, 99, 235, 0.7)',
                     borderRadius: 4,
                 },
                 {
                     label: 'Completion Tokens',
                     data: completionTokens,
-                    backgroundColor: 'rgba(139, 92, 246, 0.7)',
+                    backgroundColor: 'rgba(29, 78, 216, 0.55)',
                     borderRadius: 4,
                 }
             ]
@@ -511,11 +511,11 @@ function renderTokenChart(data) {
         options: {
             responsive: true,
             plugins: {
-                legend: { labels: { color: '#94a3b8', font: { family: "'Inter'" } } }
+                legend: { labels: { color: '#475569', font: { family: "'Inter'" } } }
             },
             scales: {
-                x: { ticks: { color: '#94a3b8' }, grid: { display: false }, border: { display: false } },
-                y: { ticks: { color: '#64748b' }, grid: { color: 'rgba(148,163,184,0.08)' }, border: { display: false } }
+                x: { ticks: { color: '#475569' }, grid: { display: false }, border: { display: false } },
+                y: { ticks: { color: '#94a3b8' }, grid: { color: 'rgba(37,99,235,0.06)' }, border: { display: false } }
             }
         }
     });
