@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from crewai import Crew, Process, Task
+from langchain_openai import ChatOpenAI
 
 from app.agents.contact_agent import create_contact_agent
 from app.agents.news_agent import create_news_agent
@@ -48,7 +49,7 @@ def build_enrichment_crew(
     """
     ctx = context or {}
     assignments = tool_assignments or {}
-    llm = settings.llm_identifier
+    llm = ChatOpenAI(model="gpt-4.1-mini")
 
     # ── Create agents and tasks ──
     agents = []

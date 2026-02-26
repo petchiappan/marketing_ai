@@ -12,6 +12,26 @@ from app.api.enrichment_routes import router as enrichment_router
 from app.api.admin_routes import router as admin_router
 from app.config.settings import settings
 
+def _disable_ssl_verification():
+    import httpx
+    _orig_client = httpx.Client
+    _orig_async = httpx.AsyncClient
+
+    class NoVerifyClient(_orig_client):
+        def __init__(self, *args, **kwargs):
+            kwargs["verify"] = False
+            super().__init__(*args, **kwargs)
+
+    class NoVerifyAsyncClient(_orig_async):
+        def __init__(self, *args, **kwargs):
+            kwargs["verify"] = False
+            super().__init__(*args, **kwargs)
+
+    httpx.Client = NoVerifyClient
+    httpx.AsyncClient = NoVerifyAsyncClient
+
+_disable_ssl_verification()
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -55,6 +75,9 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+
+import os
+os.environ["SSL_VERIFY"] = "False"
 
 # ── Mount static files ──
 static_dir = Path(__file__).parent / "admin" / "static"

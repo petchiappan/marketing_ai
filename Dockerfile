@@ -23,11 +23,27 @@ COPY pyproject.toml ./
 COPY app/ ./app/
 COPY alembic.ini ./
 COPY alembic/ ./alembic/
-RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
-    pip install --no-cache-dir .
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel --trusted-host pypi.org --trusted-host files.pythonhosted.org && \
+    pip install --no-cache-dir . --trusted-host pypi.org --trusted-host files.pythonhosted.org
+
 
 # ── Stage 2: Runtime ─────────────────────────────────────────────────
 FROM python:3.11-slim AS runtime
+
+# Install certs
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        libpq5 \
+    && update-ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV PATH="/opt/venv/bin:$PATH" \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
+    REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
 
 # Install runtime-only system dependencies
 RUN apt-get update && \

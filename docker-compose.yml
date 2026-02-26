@@ -20,6 +20,8 @@ services:
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/marketing_ai
       - REDIS_URL=redis://redis:6379/0
+      - HTTPS_PROXY=http://usproxy1.corp.biworldwide.com:443
+      - HTTP_PROXY=http://usproxy1.corp.biworldwide.com:443
     depends_on:
       db:
         condition: service_healthy

@@ -241,12 +241,12 @@ async def check_tool_health(
     health = "unknown"
     if tool.base_url:
         import httpx
-
         try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
+            async with httpx.AsyncClient(timeout=5.0, verify=False) as client:
                 resp = await client.get(tool.base_url)
                 health = "healthy" if resp.status_code < 500 else "degraded"
-        except Exception:
+        except Exception as e:
+            print(f"An unexpected error occurred: {e}")
             health = "down"
 
     await repo.upsert_tool_config(
