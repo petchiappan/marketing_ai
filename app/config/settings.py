@@ -58,6 +58,12 @@ class Settings(BaseSettings):
     google_api_key: str = Field(default="", alias="GOOGLE_API_KEY")
     anthropic_api_key: str = Field(default="", alias="ANTHROPIC_API_KEY")
 
+    # ── Groq ──
+    groq_api_key: str = Field(default="", alias="GROQ_API_KEY")
+
+    #SSL
+    disable_ssl_verification: bool = Field(default=True, alias="DISABLE_SSL_VERIFICATION")
+
     @property
     def llm_identifier(self) -> str:
         """Return the CrewAI / LiteLLM compatible model string: 'provider/model'."""
@@ -75,6 +81,5 @@ class Settings(BaseSettings):
     cache_ttl_metadata: int = 604_800  # 7 d
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
-
 
 settings = Settings()

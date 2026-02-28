@@ -13,24 +13,32 @@ from app.api.admin_routes import router as admin_router
 from app.config.settings import settings
 
 def _disable_ssl_verification():
+    import os
     import httpx
     _orig_client = httpx.Client
     _orig_async = httpx.AsyncClient
 
+    _proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("HTTP_PROXY")
+
     class NoVerifyClient(_orig_client):
         def __init__(self, *args, **kwargs):
             kwargs["verify"] = False
+            if _proxy and "proxy" not in kwargs:
+                kwargs["proxy"] = _proxy
             super().__init__(*args, **kwargs)
 
     class NoVerifyAsyncClient(_orig_async):
         def __init__(self, *args, **kwargs):
             kwargs["verify"] = False
+            if _proxy and "proxy" not in kwargs:
+                kwargs["proxy"] = _proxy
             super().__init__(*args, **kwargs)
 
     httpx.Client = NoVerifyClient
     httpx.AsyncClient = NoVerifyAsyncClient
 
-_disable_ssl_verification()
+if settings.disable_ssl_verification:
+    _disable_ssl_verification()
 
 
 @asynccontextmanager

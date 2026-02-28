@@ -49,7 +49,13 @@ def build_enrichment_crew(
     """
     ctx = context or {}
     assignments = tool_assignments or {}
-    llm = ChatOpenAI(model="gpt-4.1-mini")
+    #llm = ChatOpenAI(model="gpt-4.1-mini")
+    llm = ChatOpenAI(
+        model="llama3-70b-8192",  # Groq model
+        api_key=settings.groq_api_key,
+        base_url="https://api.groq.com/openai/v1",
+        temperature=0
+    )
 
     # ── Create agents and tasks ──
     agents = []
