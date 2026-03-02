@@ -12,10 +12,13 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from app.config.logging_config import setup_logging
 from app.config.settings import settings
 from app.db import repository as repo
 from app.db.models import ToolConfig
 
+# Ensure file logging is active even when pipeline runs in a background thread
+setup_logging()
 logger = logging.getLogger(__name__)
 
 # Rough cost per 1M tokens (input/output) – update as pricing changes
@@ -79,6 +82,30 @@ PIPELINE_STAGES = [
 ]
 
 
+def _extract_token_counts(tu: object) -> tuple[int, int, int]:
+    """Extract (prompt_tokens, completion_tokens, total_tokens) from a
+    CrewAI UsageMetrics object *or* a plain dict.  Returns (0, 0, 0)
+    if nothing useful is found."""
+    if tu is None:
+        return 0, 0, 0
+
+    # Pydantic UsageMetrics — access as attributes
+    if hasattr(tu, "prompt_tokens"):
+        prompt = getattr(tu, "prompt_tokens", 0) or 0
+        completion = getattr(tu, "completion_tokens", 0) or 0
+        total = getattr(tu, "total_tokens", 0) or (prompt + completion)
+        return prompt, completion, total
+
+    # Plain dict fallback
+    if isinstance(tu, dict):
+        prompt = tu.get("prompt_tokens", 0) or 0
+        completion = tu.get("completion_tokens", 0) or 0
+        total = tu.get("total_tokens", 0) or (prompt + completion)
+        return prompt, completion, total
+
+    return 0, 0, 0
+
+
 async def _run_pipeline(request_id: uuid.UUID) -> None:
     """Execute the enrichment crew with per-agent tool access control."""
     engine, session_factory = _make_session_factory()
@@ -140,6 +167,11 @@ async def _run_pipeline(request_id: uuid.UUID) -> None:
                 result = await loop.run_in_executor(None, crew.kickoff)
 
                 result_str = str(result)
+                logger.info("Crew execution completed for request %s", request_id)
+                logger.debug("Result type: %s", type(result).__name__)
+                logger.debug("Result token_usage raw: %s", getattr(result, 'token_usage', None))
+                logger.debug("Result tasks_output count: %s",
+                             len(result.tasks_output) if hasattr(result, 'tasks_output') and result.tasks_output else 0)
 
                 # ── Record per-task results ──
                 for stage in PIPELINE_STAGES:
@@ -169,6 +201,8 @@ async def _run_pipeline(request_id: uuid.UUID) -> None:
                 # ── Record LLM token usage ──
                 try:
                     model_name = settings.llm_identifier
+                    logger.info("Recording token usage for model: %s", model_name)
+
                     # Try per-task token usage first
                     has_per_task = (
                         hasattr(result, 'tasks_output')
@@ -180,55 +214,61 @@ async def _run_pipeline(request_id: uuid.UUID) -> None:
                     )
 
                     if has_per_task:
+                        logger.info("Using per-task token usage")
                         for stage in PIPELINE_STAGES:
                             idx = stage["task_index"]
                             if idx < len(result.tasks_output):
                                 tu = getattr(result.tasks_output[idx], 'token_usage', None)
-                                if tu and isinstance(tu, dict):
-                                    prompt = tu.get('prompt_tokens', 0) or 0
-                                    completion = tu.get('completion_tokens', 0) or 0
-                                    total = tu.get('total_tokens', 0) or (prompt + completion)
-                                    if total > 0:
-                                        await repo.log_token_usage(
-                                            db,
-                                            request_id=request_id,
-                                            agent_name=stage["name"],
-                                            model_name=model_name,
-                                            prompt_tokens=prompt,
-                                            completion_tokens=completion,
-                                            total_tokens=total,
-                                            estimated_cost_usd=_estimate_cost(model_name, prompt, completion),
-                                        )
-                    else:
-                        # Fall back to overall crew token_usage
-                        tu = getattr(result, 'token_usage', None)
-                        if tu and isinstance(tu, dict):
-                            total_prompt = tu.get('prompt_tokens', 0) or 0
-                            total_completion = tu.get('completion_tokens', 0) or 0
-                            total_tokens = tu.get('total_tokens', 0) or (total_prompt + total_completion)
-                            num_agents = len(PIPELINE_STAGES)
-
-                            if total_tokens > 0:
-                                # Split evenly across agents as approximation
-                                for stage in PIPELINE_STAGES:
-                                    agent_prompt = total_prompt // num_agents
-                                    agent_completion = total_completion // num_agents
-                                    agent_total = total_tokens // num_agents
+                                logger.debug("Task %s token_usage: %s (type: %s)",
+                                             stage["name"], tu, type(tu).__name__)
+                                prompt, completion, total = _extract_token_counts(tu)
+                                if total > 0:
                                     await repo.log_token_usage(
                                         db,
                                         request_id=request_id,
                                         agent_name=stage["name"],
                                         model_name=model_name,
-                                        prompt_tokens=agent_prompt,
-                                        completion_tokens=agent_completion,
-                                        total_tokens=agent_total,
-                                        estimated_cost_usd=_estimate_cost(model_name, agent_prompt, agent_completion),
+                                        prompt_tokens=prompt,
+                                        completion_tokens=completion,
+                                        total_tokens=total,
+                                        estimated_cost_usd=_estimate_cost(model_name, prompt, completion),
                                     )
+                                    logger.info("Recorded %s: prompt=%d, completion=%d, total=%d",
+                                                stage["name"], prompt, completion, total)
+                    else:
+                        # Fall back to overall crew token_usage
+                        tu = getattr(result, 'token_usage', None)
+                        logger.debug("Overall crew token_usage: %s (type: %s)",
+                                     tu, type(tu).__name__ if tu else "None")
+                        prompt_all, completion_all, total_all = _extract_token_counts(tu)
+                        num_agents = len(PIPELINE_STAGES)
+
+                        if total_all > 0:
+                            logger.info("Using overall crew token usage (split across %d agents): "
+                                        "prompt=%d, completion=%d, total=%d",
+                                        num_agents, prompt_all, completion_all, total_all)
+                            # Split evenly across agents as approximation
+                            for stage in PIPELINE_STAGES:
+                                agent_prompt = prompt_all // num_agents
+                                agent_completion = completion_all // num_agents
+                                agent_total = total_all // num_agents
+                                await repo.log_token_usage(
+                                    db,
+                                    request_id=request_id,
+                                    agent_name=stage["name"],
+                                    model_name=model_name,
+                                    prompt_tokens=agent_prompt,
+                                    completion_tokens=agent_completion,
+                                    total_tokens=agent_total,
+                                    estimated_cost_usd=_estimate_cost(model_name, agent_prompt, agent_completion),
+                                )
+                        else:
+                            logger.warning("No token usage data available from CrewAI result")
 
                     await db.commit()
-                    logger.info("Token usage recorded for request %s", request_id)
+                    logger.info("Token usage committed for request %s", request_id)
                 except Exception as token_err:
-                    logger.warning("Failed to record token usage: %s", token_err)
+                    logger.warning("Failed to record token usage: %s", token_err, exc_info=True)
                     # Non-fatal – don't fail the pipeline over tracking
 
                 # ── Save enriched lead ──

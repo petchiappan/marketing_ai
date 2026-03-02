@@ -64,18 +64,71 @@ async def _get_lusha_config() -> tuple[str, str]:
 
 def _build_search_payload(
     company_name: str,
+    domain: str = "",
     limit: int = _MAX_RESULTS,
 ) -> dict:
     """Build the JSON request body for Lusha /prospecting/contact/search."""
+
     return {
-        "filters": {
-            "companies": {
-                "includedCompanies": {
-                    "names": [company_name],
-                },
+        {
+            "pages": {
+                "page": 0,
+                "size": 20
             },
-        },
-        "limit": limit,
+            "filters": {
+                "contacts": {
+                    "include": {
+                        "departments": [
+                            "Engineering & Technical",
+                            "Marketing"
+                        ],
+                        "seniority": [
+                            "4",
+                            "5"
+                        ],
+                        "existing_data_points": [
+                            "phone",
+                            "work_email",
+                            "mobile_phone"
+                        ]
+                    },
+                    "exclude": {
+                        "departments": [
+                        "Human Resources"
+                        ]
+                    }
+                },
+                "companies": {
+                    "include": {
+                        "names": [company_name],
+                        "mainIndustriesIds": [4,5],
+                        "subIndustriesIds": [101],
+                        "intentTopics": ["Digital Sales"],
+                        "sizes": [
+                        {
+                            "min": 100,
+                            "max": 1000
+                        }
+                        ],
+                        "revenues": [
+                        {
+                            "min": 10000000,
+                            "max": 100000000
+                        }
+                        ],
+                        "sicCodes": [
+                            "1011",
+                            "1021"
+                        ],
+                        "naicsCodes": [
+                            "11",
+                        "21"
+                        ]
+                    },
+                    "exclude": {}
+                }
+            }
+        }
     }
 
 

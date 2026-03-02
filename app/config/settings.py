@@ -60,6 +60,8 @@ class Settings(BaseSettings):
 
     # ── Groq ──
     groq_api_key: str = Field(default="", alias="GROQ_API_KEY")
+    groq_base_url: str = Field(default="https://api.groq.com/openai/v1", alias="GROQ_BASE_URL")
+    groq_model: str = Field(default="openai/gpt-oss-20b", alias="GROQ_MODEL")
 
     #SSL
     disable_ssl_verification: bool = Field(default=True, alias="DISABLE_SSL_VERIFICATION")

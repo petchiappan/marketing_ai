@@ -8,9 +8,13 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
+from app.config.logging_config import setup_logging
 from app.api.enrichment_routes import router as enrichment_router
 from app.api.admin_routes import router as admin_router
 from app.config.settings import settings
+
+# Initialise file-based logging (logs/marketing_ai_YYYY-MM-DD.log)
+setup_logging()
 
 def _disable_ssl_verification():
     import os
