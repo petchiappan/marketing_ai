@@ -1,0 +1,96 @@
+[{
+  "request_id": "REQ-20260221-001",
+  "lead_id": "00Q5g000009abcdEAA",
+  "agent_name": "contact_agent",
+  "status": "success",
+  "execution_time_ms": 1820,
+  "data": {
+    "contacts_found": [
+      {
+        "full_name": "Ravi Kumar",
+        "title": "Chief Marketing Officer",
+        "department": "Marketing",
+        "seniority_level": "C-Level",
+        "email": "ravi@abctech.com",
+        "email_verification_status": "verified",
+        "linkedin_url": "https://linkedin.com/in/ravikumar",
+        "decision_maker_score": 25,
+        "contact_quality_score": 18,
+        "confidence_score": 0.87,
+        "source": "Lusha"
+      }
+    ],
+    "total_contacts_found": 3,
+    "decision_makers_identified": 1
+  },
+  "errors": [],
+  "confidence_score": 0.87,
+  "source_metadata": {
+    "provider": "Lusha",
+    "api_version": "v2",
+    "timestamp_utc": "2026-02-21T10:45:00Z"
+  }
+},
+
+{
+  "request_id": "REQ-20260221-001",
+  "lead_id": "00Q5g000009abcdEAA",
+  "agent_name": "news_agent",
+  "status": "success",
+  "execution_time_ms": 950,
+  "data": {
+    "recent_news": [
+      {
+        "headline": "ABC Tech Raises $50M Series B",
+        "date": "2026-01-12",
+        "category": "funding",
+        "sentiment": "positive",
+        "impact_score": 20,
+        "url": "https://news.example.com/article1"
+      }
+    ],
+    "signals_detected": {
+      "recent_funding": true,
+      "expansion": false,
+      "layoffs": false,
+      "product_launch": true
+    },
+    "intent_score": 22,
+    "overall_sentiment_score": 12
+  },
+  "errors": [],
+  "confidence_score": 0.78,
+  "source_metadata": {
+    "provider": "Google News API",
+    "api_version": "v1",
+    "timestamp_utc": "2026-02-21T10:46:30Z"
+  }
+},
+{
+  "request_id": "REQ-20260221-001",
+  "lead_id": "00Q5g000009abcdEAA",
+  "agent_name": "financial_agent",
+  "status": "success",
+  "execution_time_ms": 2100,
+  "data": {
+    "company_profile": {
+      "industry": "SaaS",
+      "revenue_range_usd": "50M-100M",
+      "employee_count": 450,
+      "employee_growth_percent": 28,
+      "funding_stage": "Series B",
+      "headquarters_country": "India",
+      "founded_year": 2018
+    },
+    "firmographic_score": 30,
+    "growth_score": 10,
+    "industry_match_score": 10
+  },
+  "errors": [],
+  "confidence_score": 0.75,
+  "source_metadata": {
+    "provider": "Financial API Provider",
+    "api_version": "v3",
+    "timestamp_utc": "2026-02-21T10:47:15Z"
+  }
+}]
