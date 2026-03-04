@@ -306,5 +306,5 @@ async def _run_pipeline(request_id: uuid.UUID) -> None:
 
 
 def run_enrichment_pipeline(request_id: uuid.UUID) -> None:
-    """Entry point for BackgroundTasks – creates its own event loop to avoid conflicts."""
+    """Entry point for BackgroundTasks - creates its own event loop to avoid conflicts."""
     asyncio.run(_run_pipeline(request_id))

@@ -229,10 +229,10 @@ function renderToolCard(tool) {
                 <div><span class="field-label">API Key:</span> ${tool.has_api_key ? '✅ Configured' : '❌ Not set'}</div>
                 <div>
                     <span class="field-label">Enabled:</span>
-                    <label class="toggle">
-                        <input type="checkbox" ${tool.is_enabled ? 'checked' : ''} onchange="toggleTool('${tool.tool_name}', this.checked)">
-                        <span class="toggle-slider"></span>
-                    </label>
+                    <select class="enabled-select" onchange="toggleTool('${tool.tool_name}', this.value)">
+                        <option value="true" ${tool.is_enabled ? 'selected' : ''}>Enabled</option>
+                        <option value="false" ${!tool.is_enabled ? 'selected' : ''}>Disabled</option>
+                    </select>
                 </div>
             </div>
             <div class="tool-card-actions">
@@ -274,6 +274,13 @@ function addTool() {
                 <option value="basic">Basic Auth</option>
             </select>
         </div>
+        <div class="form-group">
+            <label>Enabled</label>
+            <select id="add-is-enabled">
+                <option value="true" selected>Enabled</option>
+                <option value="false">Disabled</option>
+            </select>
+        </div>
     `, async () => {
         const toolName = document.getElementById('add-tool-name').value.trim();
         if (!toolName) {
@@ -291,6 +298,7 @@ function addTool() {
         const apiKey = document.getElementById('add-api-key').value;
         if (apiKey) body.api_key = apiKey;
         body.auth_type = document.getElementById('add-auth-type').value;
+        body.is_enabled = document.getElementById('add-is-enabled').value === 'true';
 
         try {
             const resp = await fetch(`/admin/api/tools/${encodeURIComponent(toolName)}`, {
@@ -313,12 +321,24 @@ function addTool() {
     });
 }
 
-async function toggleTool(toolName, enabled) {
-    await fetch(`/admin/api/tools/${toolName}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ is_enabled: enabled }),
-    });
+async function toggleTool(toolName, enabledStr) {
+    const enabled = enabledStr === 'true';
+    try {
+        const resp = await fetch(`/admin/api/tools/${toolName}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ is_enabled: enabled }),
+        });
+        if (resp.ok) {
+            showToast('success', 'Updated', `${toolName} ${enabled ? 'enabled' : 'disabled'} successfully.`);
+        } else {
+            showToast('error', 'Error', 'Failed to update tool status.');
+        }
+    } catch (err) {
+        console.error('Toggle tool error:', err);
+        showToast('error', 'Error', 'Failed to update tool status.');
+    }
+    loadTools();
 }
 
 async function editTool(toolName) {
@@ -356,6 +376,13 @@ async function editTool(toolName) {
                 <option value="basic" ${currentTool.auth_type === 'basic' ? 'selected' : ''}>Basic Auth</option>
             </select>
         </div>
+        <div class="form-group">
+            <label>Enabled</label>
+            <select id="edit-is-enabled">
+                <option value="true" ${currentTool.is_enabled ? 'selected' : ''}>Enabled</option>
+                <option value="false" ${!currentTool.is_enabled ? 'selected' : ''}>Disabled</option>
+            </select>
+        </div>
     `, async () => {
         const body = {};
         const name = document.getElementById('edit-display-name').value;
@@ -368,6 +395,7 @@ async function editTool(toolName) {
         if (url) body.base_url = url;
         if (key) body.api_key = key;
         if (auth) body.auth_type = auth;
+        body.is_enabled = document.getElementById('edit-is-enabled').value === 'true';
 
         await fetch(`/admin/api/tools/${toolName}`, {
             method: 'PUT',

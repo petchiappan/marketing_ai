@@ -738,6 +738,22 @@ select {
     gap: 0.5rem;
 }
 
+/* ─── Enabled Dropdown (inline on tool cards) ─── */
+.enabled-select {
+    display: inline-block;
+    padding: 0.2rem 0.5rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: #ffffff;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all var(--transition);
+    vertical-align: middle;
+    margin-left: 0.3rem;
+}
+
 /* ─── Toggle Switch ─── */
 .toggle {
     position: relative;
