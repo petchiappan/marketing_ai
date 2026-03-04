@@ -11,6 +11,7 @@ let refreshInterval = null;
 
 // ── Init ──
 document.addEventListener('DOMContentLoaded', async () => {
+    initToastContainer();
     await loadCurrentUser();
     setupNavigation();
     setupSidebar();
@@ -276,7 +277,7 @@ function addTool() {
     `, async () => {
         const toolName = document.getElementById('add-tool-name').value.trim();
         if (!toolName) {
-            alert('Tool Name is required.');
+            showToast('warning', 'Validation', 'Tool Name is required.');
             return;
         }
 
@@ -299,14 +300,15 @@ function addTool() {
             });
             if (!resp.ok) {
                 const err = await resp.json().catch(() => ({}));
-                alert(err.detail || 'Failed to add tool');
+                showToast('error', 'Error', err.detail || 'Failed to add tool');
                 return;
             }
             closeModal();
+            showToast('success', 'Tool Added', `"${toolName}" has been added successfully.`);
             loadTools();
         } catch (err) {
             console.error('Add tool error:', err);
-            alert('Failed to add tool. Check console for details.');
+            showToast('error', 'Error', 'Failed to add tool. Check console for details.');
         }
     });
 }
@@ -380,7 +382,9 @@ async function editTool(toolName) {
 async function healthCheck(toolName) {
     const resp = await fetch(`/admin/api/tools/${toolName}/health`, { method: 'POST' });
     const data = await resp.json();
-    alert(`Health check for ${toolName}: ${data.health_status}`);
+    const variant = data.health_status === 'healthy' ? 'success'
+        : data.health_status === 'degraded' ? 'warning' : 'error';
+    showToast(variant, 'Health Check', `${toolName}: ${data.health_status}`);
     loadTools();
 }
 
@@ -696,6 +700,114 @@ function animateValue(elementId, targetValue) {
     if (el) el.textContent = targetValue;
 }
 
+// ── Toast Notifications ──
+
+const TOAST_ICONS = {
+    success: '✅',
+    error: '❌',
+    warning: '⚠️',
+    info: 'ℹ️',
+};
+
+const TOAST_TITLES = {
+    success: 'Success',
+    error: 'Error',
+    warning: 'Warning',
+    info: 'Info',
+};
+
+function initToastContainer() {
+    if (document.getElementById('toast-container')) return;
+    const container = document.createElement('div');
+    container.id = 'toast-container';
+    container.className = 'toast-container';
+    document.body.appendChild(container);
+}
+
+/**
+ * Show a styled toast notification popup.
+ * @param {'success'|'error'|'warning'|'info'} variant
+ * @param {string} title
+ * @param {string} message
+ * @param {number} duration  Auto-dismiss in milliseconds (default 4000)
+ */
+function showToast(variant = 'info', title, message, duration = 4000) {
+    const container = document.getElementById('toast-container');
+    if (!container) return;
+
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${variant}`;
+    toast.style.position = 'relative';
+    toast.innerHTML = `
+        <span class="toast-icon">${TOAST_ICONS[variant] || TOAST_ICONS.info}</span>
+        <div class="toast-body">
+            <div class="toast-title">${escapeHtml(title || TOAST_TITLES[variant])}</div>
+            <div class="toast-message">${escapeHtml(message)}</div>
+        </div>
+        <button class="toast-close" aria-label="Close">&times;</button>
+        <div class="toast-progress" style="animation-duration:${duration}ms"></div>
+    `;
+
+    const dismiss = () => {
+        toast.classList.add('toast-exit');
+        setTimeout(() => toast.remove(), 300);
+    };
+
+    toast.querySelector('.toast-close').addEventListener('click', dismiss);
+
+    container.appendChild(toast);
+
+    // Auto-dismiss
+    const timer = setTimeout(dismiss, duration);
+    toast.addEventListener('mouseenter', () => clearTimeout(timer));
+    toast.addEventListener('mouseleave', () => setTimeout(dismiss, 1500));
+}
+
+// ── Confirm Dialog ──
+
+/**
+ * Show a styled confirmation dialog (replaces window.confirm).
+ * Returns a Promise<boolean>.
+ * @param {string} title
+ * @param {string} message
+ * @returns {Promise<boolean>}
+ */
+function showConfirm(title, message) {
+    return new Promise(resolve => {
+        const overlay = document.createElement('div');
+        overlay.className = 'confirm-overlay';
+        overlay.innerHTML = `
+            <div class="confirm-dialog">
+                <div class="confirm-header">
+                    <span class="confirm-header-icon">❓</span>
+                    <h3>${escapeHtml(title)}</h3>
+                </div>
+                <div class="confirm-body">${escapeHtml(message)}</div>
+                <div class="confirm-footer">
+                    <button class="btn btn-outline" id="confirm-cancel-btn">Cancel</button>
+                    <button class="btn btn-primary" id="confirm-ok-btn">Confirm</button>
+                </div>
+            </div>
+        `;
+
+        document.body.appendChild(overlay);
+
+        const close = (result) => {
+            overlay.remove();
+            resolve(result);
+        };
+
+        overlay.querySelector('#confirm-ok-btn').addEventListener('click', () => close(true));
+        overlay.querySelector('#confirm-cancel-btn').addEventListener('click', () => close(false));
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) close(false);
+        });
+
+        // Focus the confirm button for keyboard accessibility
+        setTimeout(() => overlay.querySelector('#confirm-ok-btn').focus(), 50);
+    });
+}
+
 // ── Auto-refresh dashboard every 30s ──
 function startAutoRefresh() {
     if (refreshInterval) clearInterval(refreshInterval);
@@ -756,7 +868,11 @@ async function loadJobQueue() {
 }
 
 async function triggerEnrichment(requestId) {
-    if (!confirm('Start enrichment processing for this request?')) return;
+    const confirmed = await showConfirm(
+        'Start Enrichment',
+        'Start enrichment processing for this request?'
+    );
+    if (!confirmed) return;
 
     try {
         const resp = await fetch(`/admin/api/trigger-enrichment/${requestId}`, {
@@ -765,15 +881,15 @@ async function triggerEnrichment(requestId) {
         const data = await resp.json();
 
         if (!resp.ok) {
-            alert(data.detail || 'Failed to trigger enrichment');
+            showToast('error', 'Error', data.detail || 'Failed to trigger enrichment');
             return;
         }
 
-        alert(data.message || 'Enrichment triggered successfully!');
+        showToast('success', 'Enrichment Started', data.message || 'Enrichment triggered successfully!');
         loadJobQueue();
     } catch (err) {
         console.error('Trigger enrichment error:', err);
-        alert('Failed to trigger enrichment. Check console for details.');
+        showToast('error', 'Error', 'Failed to trigger enrichment. Check console for details.');
     }
 }
 

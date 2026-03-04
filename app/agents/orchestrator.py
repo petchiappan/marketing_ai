@@ -5,6 +5,10 @@ from __future__ import annotations
 from crewai import Crew, Process, Task
 from langchain_openai import ChatOpenAI
 
+from app.schemas.contact_agent import ContactAgentOutput
+from app.schemas.financial_agent import FinancialAgentOutput
+from app.schemas.news_agent import NewsAgentOutput
+
 from app.agents.contact_agent import create_contact_agent
 from app.agents.news_agent import create_news_agent
 from app.agents.financial_agent import create_financial_agent
@@ -19,17 +23,20 @@ AGENT_REGISTRY = {
     "contact_agent": {
         "create": create_contact_agent,
         "build_prompt": lambda pg, company, ctx: pg.build_contact_prompt(company, ctx),
-        "expected_output": "JSON array of contact objects with name, title, email, phone, linkedin_url, confidence_score",
+        "expected_output": "JSON object matching ContactAgentOutput schema with request_id, lead_id, agent_name, status, execution_time_ms, data (contacts_found, total_contacts_found, decision_makers_identified), errors, confidence_score, and source_metadata",
+        "output_json": ContactAgentOutput,
     },
     "news_agent": {
         "create": create_news_agent,
         "build_prompt": lambda pg, company, ctx: pg.build_news_prompt(company, ctx),
-        "expected_output": "JSON array of news objects with headline, summary, url, published_date, sentiment, relevance_score, category",
+        "expected_output": "JSON object matching NewsAgentOutput schema with request_id, lead_id, agent_name, status, execution_time_ms, data (recent_news, signals_detected, intent_score, overall_sentiment_score), errors, confidence_score, and source_metadata",
+        "output_json": NewsAgentOutput,
     },
     "financial_agent": {
         "create": create_financial_agent,
         "build_prompt": lambda pg, company, ctx: pg.build_financial_prompt(company, ctx),
-        "expected_output": "JSON object with revenue, funding_total, market_cap, employee_count, industry, headquarters, confidence_score",
+        "expected_output": "JSON object matching FinancialAgentOutput schema with request_id, lead_id, agent_name, status, execution_time_ms, data (company_profile, firmographic_score, growth_score, industry_match_score), errors, confidence_score, and source_metadata",
+        "output_json": FinancialAgentOutput,
     },
 }
 
@@ -65,11 +72,14 @@ def build_enrichment_crew(
         agent_tools = resolve_tools(agent_tool_names)
 
         agent = entry["create"](tools=agent_tools, llm=llm)
-        task = Task(
-            description=entry["build_prompt"](prompt_generator, company_name, ctx),
-            expected_output=entry["expected_output"],
-            agent=agent,
-        )
+        task_kwargs = {
+            "description": entry["build_prompt"](prompt_generator, company_name, ctx),
+            "expected_output": entry["expected_output"],
+            "agent": agent,
+        }
+        if "output_json" in entry:
+            task_kwargs["output_json"] = entry["output_json"]
+        task = Task(**task_kwargs)
         agents.append(agent)
         tasks.append(task)
 
