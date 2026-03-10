@@ -14,8 +14,8 @@ from app.db.repository import get_tool_config
 logger = logging.getLogger(__name__)
 
 # Lusha API defaults
-_DEFAULT_BASE_URL = "https://api.lusha.com"
-_CONTACT_SEARCH_PATH = "/prospecting/contact/search"
+_DEFAULT_BASE_URL = "https://api.lusha.com/prospecting"
+_CONTACT_SEARCH_PATH = "/contact/search"
 _TIMEOUT_SECONDS = 30
 _MAX_RESULTS = 25
 
@@ -198,9 +198,23 @@ def search_lusha(company_name: str) -> str:
     }
     payload = _build_search_payload(company_name)
 
+    # Log full request details
+    logger.info("Lusha API request: POST %s", url)
+    logger.debug("Lusha request headers: %s", {k: (v[:4] + "****" if k == "api_key" else v) for k, v in headers.items()})
+    logger.debug("Lusha request payload: %s", json.dumps(payload, indent=2))
+
     try:
         with httpx.Client(timeout=_TIMEOUT_SECONDS) as client:
             resp = client.post(url, headers=headers, json=payload)
+
+            # Log full response regardless of status
+            logger.info(
+                "Lusha API response: status=%s, content_length=%s",
+                resp.status_code, len(resp.text),
+            )
+            logger.debug("Lusha response headers: %s", dict(resp.headers))
+            logger.info("Lusha response body: %s", resp.text[:2000])
+
             resp.raise_for_status()
             raw = resp.json()
 
@@ -214,17 +228,17 @@ def search_lusha(company_name: str) -> str:
         })
 
     except httpx.HTTPStatusError as exc:
-        error_body = exc.response.text[:500]
+        error_body = exc.response.text
         logger.error(
-            "Lusha API error %s for %s: %s",
-            exc.response.status_code, company_name, error_body,
+            "Lusha API HTTP error for '%s': status=%s, url=%s, response_body=%s",
+            company_name, exc.response.status_code, url, error_body[:2000],
         )
         return json.dumps({
             "source_tool": "lusha",
             "company": company_name,
             "contacts": [],
             "error": f"Lusha API returned {exc.response.status_code}",
-            "detail": error_body,
+            "detail": error_body[:2000],
         })
 
     except httpx.TimeoutException:

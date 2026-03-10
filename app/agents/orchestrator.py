@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 from crewai import Crew, Process, Task
 from langchain_openai import ChatOpenAI
 
@@ -69,7 +73,13 @@ def build_enrichment_crew(
     tasks = []
     for agent_name, entry in AGENT_REGISTRY.items():
         agent_tool_names = assignments.get(agent_name, [])
+        logger.info("[%s] Tool names from DB config: %s", agent_name, agent_tool_names)
         agent_tools = resolve_tools(agent_tool_names)
+        resolved_names = [getattr(t, 'name', str(t)) for t in agent_tools]
+        logger.info("[%s] Resolved %d/%d tools: %s", agent_name, len(agent_tools), len(agent_tool_names), resolved_names)
+        if len(agent_tools) != len(agent_tool_names):
+            missing = set(agent_tool_names) - set(resolved_names)
+            logger.warning("[%s] Tools NOT found in registry: %s", agent_name, missing)
 
         agent = entry["create"](tools=agent_tools, llm=llm)
         task_kwargs = {

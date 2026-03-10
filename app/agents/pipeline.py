@@ -6,16 +6,14 @@ import asyncio
 import logging
 import traceback
 import uuid
-from collections import defaultdict
 from decimal import Decimal
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.config.logging_config import setup_logging
 from app.config.settings import settings
 from app.db import repository as repo
-from app.db.models import ToolConfig
+from app.tools.registry import get_agent_tool_assignments
 
 # Ensure file logging is active even when pipeline runs in a background thread
 setup_logging()
@@ -55,22 +53,46 @@ def _make_session_factory():
 
 async def _get_tool_assignments(db: AsyncSession) -> dict[str, list[str]]:
     """
-    Query tool_configs to build: { agent_name: [tool_name, ...] }
+    Build agent → tool-name mapping using the file-based registry,
+    but only include a tool if it is configured in the DB admin panel
+    with is_enabled=True AND a non-empty API key.
 
-    Only includes enabled tools that have an agent assigned.
+    If a tool is not configured, disabled, or has no API key,
+    it is skipped — the agent will run with LLM only for that tool.
     """
-    stmt = (
-        select(ToolConfig.agent_name, ToolConfig.tool_name)
-        .where(ToolConfig.agent_name.isnot(None))
-        .where(ToolConfig.is_enabled.is_(True))
-    )
-    result = await db.execute(stmt)
+    base_assignments = get_agent_tool_assignments()
+    validated: dict[str, list[str]] = {}
 
-    assignments: dict[str, list[str]] = defaultdict(list)
-    for agent_name, tool_name in result.all():
-        assignments[agent_name].append(tool_name)
+    for agent_name, tool_names in base_assignments.items():
+        active_tools: list[str] = []
+        for tool_name in tool_names:
+            config = await repo.get_tool_config(db, tool_name)
+            if config is None:
+                logger.info(
+                    "[%s] Tool '%s' skipped — not configured in admin",
+                    agent_name, tool_name,
+                )
+                continue
+            if not config.is_enabled:
+                logger.info(
+                    "[%s] Tool '%s' skipped — disabled in admin",
+                    agent_name, tool_name,
+                )
+                continue
+            if not config.api_key_encrypted:
+                logger.info(
+                    "[%s] Tool '%s' skipped — no API key configured",
+                    agent_name, tool_name,
+                )
+                continue
+            logger.info(
+                "[%s] Tool '%s' ✔ validated (enabled + API key present)",
+                agent_name, tool_name,
+            )
+            active_tools.append(tool_name)
+        validated[agent_name] = active_tools
 
-    return dict(assignments)
+    return validated
 
 
 # All stages that always run (all data agents + aggregation)
@@ -119,7 +141,7 @@ async def _run_pipeline(request_id: uuid.UUID) -> None:
             company = req.company_name
             context = req.additional_fields or {}
 
-            # ── Query which tools are assigned to which agents ──
+            # ── Determine which tools pass DB validation ──
             tool_assignments = await _get_tool_assignments(db)
 
             # ── Create AgentRun entries for ALL stages ──
