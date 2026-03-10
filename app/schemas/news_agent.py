@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -11,8 +13,10 @@ class NewsItem(BaseModel):
     headline: str = Field(..., description="News headline")
     date: str = Field("", description="Publication date (YYYY-MM-DD)")
     category: str = Field("", description="Category, e.g. funding, product_launch, partnership")
-    sentiment: str = Field("neutral", description="Sentiment: positive, negative, neutral, mixed")
-    impact_score: int = Field(0, description="Business impact score (0-100)")
+    sentiment: Literal["positive", "negative", "neutral", "mixed"] = Field(
+        "neutral", description="Sentiment"
+    )
+    impact_score: int = Field(0, ge=0, le=100, description="Business impact score (0-100)")
     url: str = Field("", description="URL to the original article")
 
 
@@ -34,8 +38,8 @@ class NewsAgentData(BaseModel):
     signals_detected: SignalsDetected = Field(
         default_factory=SignalsDetected, description="Buying-intent signals"
     )
-    intent_score: int = Field(0, description="Overall buying intent score (0-100)")
-    overall_sentiment_score: int = Field(0, description="Aggregate sentiment score (0-100)")
+    intent_score: int = Field(0, ge=0, le=100, description="Overall buying intent score (0-100)")
+    overall_sentiment_score: int = Field(0, ge=0, le=100, description="Aggregate sentiment score (0-100)")
 
 
 class SourceMetadata(BaseModel):
@@ -61,5 +65,5 @@ class NewsAgentOutput(BaseModel):
     execution_time_ms: int = Field(0, description="Execution time in milliseconds")
     data: NewsAgentData = Field(..., description="News data payload")
     errors: list[str] = Field(default_factory=list, description="List of errors, if any")
-    confidence_score: float = Field(0.0, description="Overall confidence score")
+    confidence_score: float = Field(0.0, ge=0.0, le=1.0, description="Overall confidence score")
     source_metadata: SourceMetadata = Field(..., description="Source provider metadata")

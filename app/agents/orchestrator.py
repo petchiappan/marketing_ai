@@ -56,7 +56,7 @@ def build_enrichment_crew(
     """
     ctx = context or {}
     assignments = tool_assignments or {}
-    llm = ChatOpenAI(model="gpt-4.1-mini")
+    llm = ChatOpenAI(model="gpt-4.1-mini", temperature=0, model_kwargs={"seed": 42})
     # llm = ChatOpenAI(
     #     model=settings.groq_model,  # Groq model
     #     api_key=settings.groq_api_key,

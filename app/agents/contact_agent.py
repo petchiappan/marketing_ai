@@ -50,6 +50,28 @@ def create_contact_agent(tools: list | None = None, llm: str | None = None) -> A
             - If data is missing, clearly state the limitation and stop.
             - Do not continue reasoning after final answer is produced.
 
+            DETERMINISTIC SCORING RUBRIC (you MUST follow these exactly):
+
+            decision_maker_score:
+              - CEO, CTO, CFO, COO, CIO, CISO, CMO, CPO = 90-100
+              - SVP, EVP, VP = 70-89
+              - Director, Head of = 50-69
+              - Senior Manager, Manager = 30-49
+              - Other/Unknown = 0-29
+
+            contact_quality_score:
+              - Verified email + phone + LinkedIn = 90-100
+              - Verified email + LinkedIn (no phone) = 70-89
+              - Verified email only = 50-69
+              - Unverified email = 20-49
+              - No email = 0-19
+
+            confidence_score:
+              - All data fields present and verified = 0.9-1.0
+              - Most fields present, some unverified = 0.7-0.89
+              - Partial data = 0.4-0.69
+              - Minimal or mostly missing data = 0.0-0.39
+
             You are optimized for:
             - Deterministic behavior
             - Minimal tool calls

@@ -369,3 +369,64 @@ class AgentRun(Base):
         Index("idx_agent_runs_agent", "agent_name"),
         Index("idx_agent_runs_created", "created_at"),
     )
+
+
+# ---------------------------------------------------------------------------
+# LLM Response Cache
+# ---------------------------------------------------------------------------
+
+class LLMResponseCache(Base):
+    __tablename__ = "llm_response_cache"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    cache_key = Column(String(64), nullable=False, unique=True)  # SHA-256 hex
+    agent_name = Column(String(50), nullable=False)
+    model_name = Column(String(100), nullable=False)
+    prompt_hash = Column(String(64), nullable=False)
+    response_text = Column(Text, nullable=False)
+    response_hash = Column(String(64), nullable=False)
+    tools_used = Column(JSONB, default=list)
+    hit_count = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+    last_hit_at = Column(DateTime(timezone=True))
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        Index("idx_cache_agent", "agent_name"),
+        Index("idx_cache_expires", "expires_at"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Response Evaluation Metrics
+# ---------------------------------------------------------------------------
+
+class ResponseEvaluation(Base):
+    __tablename__ = "response_evaluations"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    request_id = Column(UUID(as_uuid=True), ForeignKey("enrichment_requests.id", ondelete="CASCADE"), nullable=False)
+    agent_run_id = Column(UUID(as_uuid=True), ForeignKey("agent_runs.id", ondelete="CASCADE"), nullable=True)
+    agent_name = Column(String(50), nullable=False)
+    cache_hit = Column(Boolean, nullable=False, default=False)
+    cache_status = Column(String(20), nullable=False, default="miss")  # hit, miss, updated
+    response_hash = Column(String(64))
+    json_valid = Column(Boolean, nullable=False, default=False)
+    schema_compliant = Column(Boolean, nullable=False, default=False)
+    field_completeness_pct = Column(Numeric(5, 2), default=0)
+    confidence_score_valid = Column(Boolean, nullable=False, default=False)
+    determinism_score = Column(Numeric(5, 2))  # NULL if first run (no reference)
+    latency_ms = Column(Integer)
+    evaluation_details = Column(JSONB, default=dict)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+
+    request = relationship("EnrichmentRequest")
+    agent_run = relationship("AgentRun")
+
+    __table_args__ = (
+        CheckConstraint("cache_status IN ('hit','miss','updated')", name="ck_eval_cache_status"),
+        Index("idx_eval_request", "request_id"),
+        Index("idx_eval_agent", "agent_name"),
+        Index("idx_eval_created", "created_at"),
+    )
+

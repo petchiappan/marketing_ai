@@ -38,6 +38,9 @@
                 <a href="#agent-runs" class="nav-link" data-section="agent-runs">
                     <span class="nav-icon">🏃</span><span class="nav-text">Agent Runs</span>
                 </a>
+                <a href="#response-eval" class="nav-link" data-section="response-eval">
+                    <span class="nav-icon">📊</span><span class="nav-text">Response Evaluation</span>
+                </a>
                 <a href="#trace-viewer" class="nav-link" data-section="trace-viewer">
                     <span class="nav-icon">🔍</span><span class="nav-text">Trace Viewer</span>
                 </a>
@@ -206,19 +209,95 @@
                         </select>
                     </div>
                 </div>
+                <div class="job-accordion" id="agent-runs-container">
+                    <!-- Populated via JS -->
+                </div>
+            </section>
+
+            <!-- Response Evaluation Section -->
+            <section class="content-section" id="section-response-eval">
+                <div class="section-header">
+                    <h1>Response Evaluation Metrics</h1>
+                    <div class="filter-group">
+                        <select id="eval-days">
+                            <option value="7">Last 7 days</option>
+                            <option value="30" selected>Last 30 days</option>
+                            <option value="90">Last 90 days</option>
+                        </select>
+                        <select id="eval-agent-filter">
+                            <option value="">All Agents</option>
+                            <option value="contact_agent">Contact Agent</option>
+                            <option value="news_agent">News Agent</option>
+                            <option value="financial_agent">Financial Agent</option>
+                            <option value="aggregation_agent">Aggregation Agent</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Evaluation KPI Cards -->
+                <div class="kpi-grid">
+                    <div class="kpi-card glass">
+                        <div class="kpi-icon">🎯</div>
+                        <div class="kpi-body">
+                            <span class="kpi-value" id="kpi-determinism">—</span>
+                            <span class="kpi-label">Avg Determinism</span>
+                        </div>
+                    </div>
+                    <div class="kpi-card glass">
+                        <div class="kpi-icon">⚡</div>
+                        <div class="kpi-body">
+                            <span class="kpi-value" id="kpi-cache-hit">—</span>
+                            <span class="kpi-label">Cache Hit Rate</span>
+                        </div>
+                    </div>
+                    <div class="kpi-card glass">
+                        <div class="kpi-icon">✅</div>
+                        <div class="kpi-body">
+                            <span class="kpi-value" id="kpi-schema-compliance">—</span>
+                            <span class="kpi-label">Schema Compliance</span>
+                        </div>
+                    </div>
+                    <div class="kpi-card glass">
+                        <div class="kpi-icon">📋</div>
+                        <div class="kpi-body">
+                            <span class="kpi-value" id="kpi-completeness">—</span>
+                            <span class="kpi-label">Avg Field Completeness</span>
+                        </div>
+                    </div>
+                    <div class="kpi-card glass">
+                        <div class="kpi-icon">📦</div>
+                        <div class="kpi-body">
+                            <span class="kpi-value" id="kpi-cache-entries">—</span>
+                            <span class="kpi-label">Cache Entries</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Evaluation Chart -->
+                <div class="chart-row">
+                    <div class="chart-card glass" style="flex:1">
+                        <h3>Evaluation Metrics by Agent</h3>
+                        <canvas id="chart-eval" height="300"></canvas>
+                    </div>
+                </div>
+
+                <!-- Evaluation Table -->
                 <div class="table-wrapper glass">
                     <table class="data-table">
                         <thead>
                             <tr>
                                 <th>Agent</th>
-                                <th>Status</th>
-                                <th>Started</th>
-                                <th>Duration</th>
-                                <th>Error</th>
-                                <th>Actions</th>
+                                <th>Cache</th>
+                                <th>JSON</th>
+                                <th>Schema</th>
+                                <th>Completeness</th>
+                                <th>Determinism</th>
+                                <th>Confidence</th>
+                                <th>Latency</th>
+                                <th>Time</th>
                             </tr>
                         </thead>
-                        <tbody id="agent-runs-tbody">
+                        <tbody id="eval-tbody">
                             <!-- Populated via JS -->
                         </tbody>
                     </table>

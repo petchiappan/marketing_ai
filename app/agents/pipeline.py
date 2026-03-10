@@ -173,14 +173,27 @@ async def _run_pipeline(request_id: uuid.UUID) -> None:
                 logger.debug("Result tasks_output count: %s",
                              len(result.tasks_output) if hasattr(result, 'tasks_output') and result.tasks_output else 0)
 
-                # ── Record per-task results ──
+                # ── Record per-task results + cache & evaluation ──
+                from app.agents.normalizer import normalize_output
+                from app.infrastructure.llm_cache import (
+                    compute_cache_key, compute_prompt_hash, compute_response_hash,
+                    compare_and_update_cache,
+                )
+                from app.infrastructure.evaluation import evaluate_response
+                from app.infrastructure.prompt_generator import prompt_generator
+
+                model_id = settings.llm_identifier
+
                 for stage in PIPELINE_STAGES:
                     run = agent_runs[stage["name"]]
                     idx = stage["task_index"]
+                    agent_name = stage["name"]
 
                     try:
                         if hasattr(result, 'tasks_output') and idx < len(result.tasks_output):
                             task_output = str(result.tasks_output[idx])
+                            # Apply deterministic post-processing normalization
+                            task_output = normalize_output(agent_name, task_output)
                         else:
                             task_output = "Completed as part of crew execution"
 
@@ -188,6 +201,78 @@ async def _run_pipeline(request_id: uuid.UUID) -> None:
                             db, run.id,
                             output_summary=task_output[:5000],
                         )
+
+                        # ── Cache & Evaluation (non-fatal) ──
+                        try:
+                            # Build prompt for cache key (same prompt used by orchestrator)
+                            from app.agents.orchestrator import AGENT_REGISTRY
+                            agent_tools = tool_assignments.get(agent_name, [])
+                            has_tools = len(agent_tools) > 0
+
+                            if agent_name in AGENT_REGISTRY:
+                                prompt_text = AGENT_REGISTRY[agent_name]["build_prompt"](
+                                    prompt_generator, company, context
+                                )
+                            else:
+                                prompt_text = f"aggregation:{company}"
+
+                            cache_key = compute_cache_key(agent_name, prompt_text, model_id, agent_tools)
+                            prompt_hash = compute_prompt_hash(prompt_text)
+                            response_hash = compute_response_hash(task_output)
+
+                            # Two-tier cache strategy
+                            cached_entry = await repo.get_cached_response(db, cache_key)
+                            cached_text = cached_entry.response_text if cached_entry else None
+                            cached_hash = cached_entry.response_hash if cached_entry else None
+
+                            cache_status = await compare_and_update_cache(
+                                db,
+                                cache_key=cache_key,
+                                agent_name=agent_name,
+                                model_name=model_id,
+                                prompt_hash=prompt_hash,
+                                new_response_text=task_output,
+                                new_response_hash=response_hash,
+                                tools_used=agent_tools,
+                            )
+
+                            # Run evaluation
+                            eval_result = evaluate_response(
+                                agent_name=agent_name,
+                                response_text=task_output,
+                                cache_status=cache_status,
+                                cached_response_text=cached_text,
+                                cached_response_hash=cached_hash,
+                                latency_ms=run.duration_ms,
+                            )
+
+                            # Store evaluation record
+                            await repo.save_evaluation(
+                                db,
+                                request_id=request_id,
+                                agent_run_id=run.id,
+                                agent_name=agent_name,
+                                cache_hit=(cache_status == "hit"),
+                                cache_status=cache_status,
+                                response_hash=eval_result.response_hash,
+                                json_valid=eval_result.json_valid,
+                                schema_compliant=eval_result.schema_compliant,
+                                field_completeness_pct=Decimal(str(eval_result.field_completeness_pct)),
+                                confidence_score_valid=eval_result.confidence_score_valid,
+                                determinism_score=Decimal(str(eval_result.determinism_score)) if eval_result.determinism_score is not None else None,
+                                latency_ms=eval_result.latency_ms,
+                                evaluation_details=eval_result.details,
+                            )
+                            logger.info(
+                                "Evaluation saved for %s: cache=%s, json=%s, schema=%s, completeness=%.1f%%, determinism=%s",
+                                agent_name, cache_status, eval_result.json_valid,
+                                eval_result.schema_compliant, eval_result.field_completeness_pct,
+                                f"{eval_result.determinism_score:.1f}%" if eval_result.determinism_score is not None else "N/A",
+                            )
+                        except Exception as eval_err:
+                            logger.warning("Evaluation/cache failed for %s: %s", agent_name, eval_err, exc_info=True)
+                            # Non-fatal – don't fail the pipeline over evaluation
+
                     except Exception as inner_exc:
                         await repo.fail_agent_run(
                             db, run.id,

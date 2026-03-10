@@ -342,25 +342,12 @@ async def list_agent_runs(
     user: AdminUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """List agent runs with optional filters."""
-    runs = await repo.list_agent_runs(
+    """List agent runs grouped by enrichment request (job)."""
+    grouped = await repo.list_agent_runs_grouped(
         db, limit=limit, offset=offset, status=status_filter, agent_name=agent_name,
         request_id=uuid.UUID(request_id) if request_id else None,
     )
-    return [
-        {
-            "id": str(r.id),
-            "request_id": str(r.request_id),
-            "agent_name": r.agent_name,
-            "status": r.status,
-            "started_at": r.started_at.isoformat() if r.started_at else None,
-            "completed_at": r.completed_at.isoformat() if r.completed_at else None,
-            "duration_ms": r.duration_ms,
-            "error_type": r.error_type,
-            "error_message": r.error_message,
-        }
-        for r in runs
-    ]
+    return grouped
 
 
 @router.get("/admin/api/agent-runs/{run_id}")
@@ -453,6 +440,100 @@ async def dashboard_kpis(
             "identifier": settings.llm_identifier,
         },
     }
+
+# ────────────────────────────────────────────────────────────────────────────
+# Response Evaluations
+# ────────────────────────────────────────────────────────────────────────────
+
+@router.get("/admin/api/evaluations/summary")
+async def evaluation_summary(
+    days: int = 30,
+    user: AdminUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get aggregated evaluation metrics for dashboard KPIs."""
+    summary = await repo.get_evaluation_summary(db, days=days)
+    return summary
+
+
+@router.get("/admin/api/evaluations")
+async def list_evaluations_route(
+    limit: int = 50,
+    offset: int = 0,
+    agent_name: str | None = None,
+    request_id: str | None = None,
+    user: AdminUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """List response evaluations with filters."""
+    evals = await repo.list_evaluations(
+        db, limit=limit, offset=offset, agent_name=agent_name,
+        request_id=uuid.UUID(request_id) if request_id else None,
+    )
+    return [
+        {
+            "id": str(e.id),
+            "request_id": str(e.request_id),
+            "agent_run_id": str(e.agent_run_id) if e.agent_run_id else None,
+            "agent_name": e.agent_name,
+            "cache_hit": e.cache_hit,
+            "cache_status": e.cache_status,
+            "response_hash": e.response_hash[:12] + "…" if e.response_hash else None,
+            "json_valid": e.json_valid,
+            "schema_compliant": e.schema_compliant,
+            "field_completeness_pct": float(e.field_completeness_pct) if e.field_completeness_pct else 0,
+            "confidence_score_valid": e.confidence_score_valid,
+            "determinism_score": float(e.determinism_score) if e.determinism_score is not None else None,
+            "latency_ms": e.latency_ms,
+            "created_at": e.created_at.isoformat() if e.created_at else None,
+        }
+        for e in evals
+    ]
+
+
+@router.get("/admin/api/evaluations/{eval_id}")
+async def get_evaluation_detail_route(
+    eval_id: uuid.UUID,
+    user: AdminUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get detailed evaluation including full evaluation_details breakdown."""
+    ev = await repo.get_evaluation_detail(db, eval_id)
+    if not ev:
+        raise HTTPException(status_code=404, detail="Evaluation not found")
+    return {
+        "id": str(ev.id),
+        "request_id": str(ev.request_id),
+        "agent_run_id": str(ev.agent_run_id) if ev.agent_run_id else None,
+        "agent_name": ev.agent_name,
+        "cache_hit": ev.cache_hit,
+        "cache_status": ev.cache_status,
+        "response_hash": ev.response_hash,
+        "json_valid": ev.json_valid,
+        "schema_compliant": ev.schema_compliant,
+        "field_completeness_pct": float(ev.field_completeness_pct) if ev.field_completeness_pct else 0,
+        "confidence_score_valid": ev.confidence_score_valid,
+        "determinism_score": float(ev.determinism_score) if ev.determinism_score is not None else None,
+        "latency_ms": ev.latency_ms,
+        "evaluation_details": ev.evaluation_details,
+        "created_at": ev.created_at.isoformat() if ev.created_at else None,
+    }
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# Cache Stats
+# ────────────────────────────────────────────────────────────────────────────
+
+@router.get("/admin/api/cache/stats")
+async def cache_stats(
+    user: AdminUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return LLM response cache statistics."""
+    stats = await repo.get_cache_stats(db)
+    stats["cache_enabled"] = settings.llm_cache_enabled
+    stats["ttl_hours"] = settings.llm_cache_ttl_hours
+    return stats
 
 
 # ────────────────────────────────────────────────────────────────────────────

@@ -77,6 +77,7 @@ function switchSection(sectionName) {
         'rate-limits': loadRateLimits,
         'token-usage': loadTokenUsage,
         'agent-runs': loadAgentRuns,
+        'response-eval': loadResponseEval,
         'job-queue': loadJobQueue,
     };
     if (loaders[sectionName]) loaders[sectionName]();
@@ -557,8 +558,22 @@ function renderTokenChart(data) {
 document.getElementById('token-days')?.addEventListener('change', loadTokenUsage);
 
 // ════════════════════════════════════════════════════════════════════════
-// AGENT RUNS
+// AGENT RUNS (grouped by job)
 // ════════════════════════════════════════════════════════════════════════
+
+const AGENT_LABELS = {
+    contact_agent: '📇 Contact Agent',
+    news_agent: '📰 News Agent',
+    financial_agent: '💰 Financial Agent',
+    aggregation_agent: '🔗 Aggregation Agent',
+};
+
+const AGENT_ICONS = {
+    contact_agent: '📇',
+    news_agent: '📰',
+    financial_agent: '💰',
+    aggregation_agent: '🔗',
+};
 
 async function loadAgentRuns() {
     const statusFilter = document.getElementById('filter-agent-status').value;
@@ -576,22 +591,103 @@ async function loadAgentRuns() {
 
     try {
         const resp = await fetch(url);
-        const runs = await resp.json();
-        const tbody = document.getElementById('agent-runs-tbody');
-        tbody.innerHTML = runs.map(r => `
-            <tr>
-                <td><strong>${escapeHtml(r.agent_name)}</strong></td>
-                <td><span class="badge badge-${r.status}">${r.status}</span></td>
-                <td>${r.started_at ? new Date(r.started_at).toLocaleString() : '—'}</td>
-                <td>${r.duration_ms ? (r.duration_ms / 1000).toFixed(1) + 's' : '—'}</td>
-                <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis">${r.error_message ? escapeHtml(r.error_message) : '—'}</td>
-                <td>
-                    <button class="btn btn-sm btn-outline" onclick="viewTrace('${r.id}')">View</button>
-                </td>
-            </tr>
-        `).join('');
+        const jobs = await resp.json();
+        const container = document.getElementById('agent-runs-container');
+
+        if (!jobs.length) {
+            container.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:3rem 0">No agent runs found.</p>';
+            return;
+        }
+
+        container.innerHTML = jobs.map((job, idx) => {
+            const agentCount = job.agents ? job.agents.length : 0;
+            const completedCount = job.agents ? job.agents.filter(a => a.status === 'completed').length : 0;
+            const failedCount = job.agents ? job.agents.filter(a => a.status === 'failed').length : 0;
+
+            // Determine overall badge for agent runs
+            let agentsBadge = 'completed';
+            if (failedCount > 0) agentsBadge = 'failed';
+            else if (completedCount < agentCount) agentsBadge = 'running';
+
+            const agentsHtml = (job.agents || []).map(agent => `
+                <div class="agent-run-card glass">
+                    <div class="agent-run-card-header">
+                        <span class="agent-run-icon">${AGENT_ICONS[agent.agent_name] || '🤖'}</span>
+                        <span class="agent-run-name">${escapeHtml(AGENT_LABELS[agent.agent_name] || agent.agent_name)}</span>
+                        <span class="badge badge-${agent.status}">${agent.status}</span>
+                    </div>
+                    <div class="agent-run-card-body">
+                        <div class="agent-run-meta">
+                            <span class="agent-meta-label">Started</span>
+                            <span class="agent-meta-value">${agent.started_at ? new Date(agent.started_at).toLocaleString() : '—'}</span>
+                        </div>
+                        <div class="agent-run-meta">
+                            <span class="agent-meta-label">Duration</span>
+                            <span class="agent-meta-value">${agent.duration_ms ? (agent.duration_ms / 1000).toFixed(1) + 's' : '—'}</span>
+                        </div>
+                        ${agent.error_message ? `
+                        <div class="agent-run-meta agent-run-error">
+                            <span class="agent-meta-label">Error</span>
+                            <span class="agent-meta-value">${escapeHtml(agent.error_message)}</span>
+                        </div>
+                        ` : ''}
+                    </div>
+                    <div class="agent-run-card-footer">
+                        <button class="btn btn-sm btn-outline" onclick="viewTrace('${agent.id}')">🔍 View Trace</button>
+                    </div>
+                </div>
+            `).join('');
+
+            return `
+                <div class="job-group glass">
+                    <div class="job-header" onclick="toggleJobPanel(this)" id="job-header-${idx}">
+                        <div class="job-header-left">
+                            <span class="job-chevron">▶</span>
+                            <div class="job-info">
+                                <span class="job-company">${escapeHtml(job.company_name)}</span>
+                                <span class="job-request-id">${job.request_id.substring(0, 8)}…</span>
+                            </div>
+                        </div>
+                        <div class="job-header-right">
+                            <span class="job-agent-count">${completedCount}/${agentCount} agents</span>
+                            <span class="badge badge-${job.status}">${job.status}</span>
+                            <span class="job-time">${job.created_at ? new Date(job.created_at).toLocaleString() : '—'}</span>
+                        </div>
+                    </div>
+                    <div class="job-agents-panel" id="job-panel-${idx}">
+                        <div class="job-agents-grid">
+                            ${agentsHtml}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }).join('');
     } catch (err) {
         console.error('Agent runs load error:', err);
+    }
+}
+
+function toggleJobPanel(header) {
+    const group = header.closest('.job-group');
+    const panel = group.querySelector('.job-agents-panel');
+    const chevron = header.querySelector('.job-chevron');
+
+    const isOpen = group.classList.contains('open');
+    if (isOpen) {
+        panel.style.maxHeight = panel.scrollHeight + 'px';
+        // Force reflow
+        panel.offsetHeight;
+        panel.style.maxHeight = '0';
+        group.classList.remove('open');
+    } else {
+        group.classList.add('open');
+        panel.style.maxHeight = panel.scrollHeight + 'px';
+        panel.addEventListener('transitionend', function handler() {
+            if (group.classList.contains('open')) {
+                panel.style.maxHeight = 'none';
+            }
+            panel.removeEventListener('transitionend', handler);
+        });
     }
 }
 
@@ -603,6 +699,19 @@ document.getElementById('filter-agent-name')?.addEventListener('change', loadAge
 // TRACE VIEWER
 // ════════════════════════════════════════════════════════════════════════
 
+/**
+ * Try to pretty-print JSON content; fall back to escaped plain text.
+ */
+function formatOutputSummary(text) {
+    if (!text) return '—';
+    try {
+        const parsed = JSON.parse(text);
+        return escapeHtml(JSON.stringify(parsed, null, 2));
+    } catch {
+        return escapeHtml(text);
+    }
+}
+
 async function viewTrace(runId) {
     switchSection('trace-viewer');
 
@@ -610,10 +719,15 @@ async function viewTrace(runId) {
         const resp = await fetch(`/admin/api/agent-runs/${runId}`);
         const run = await resp.json();
         const detail = document.getElementById('trace-detail');
+        const agentLabel = AGENT_LABELS[run.agent_name] || run.agent_name;
 
         detail.innerHTML = `
+            <button class="btn btn-sm btn-outline back-btn" onclick="switchSection('agent-runs')">
+                ← Back to Agent Runs
+            </button>
+
             <div class="trace-header">
-                <h2>${escapeHtml(run.agent_name)} – Run Detail</h2>
+                <h2>${escapeHtml(agentLabel)} – Run Detail</h2>
                 <span class="badge badge-${run.status}">${run.status}</span>
             </div>
 
@@ -650,21 +764,21 @@ async function viewTrace(runId) {
             ${run.output_summary ? `
                 <div class="trace-section">
                     <h3>📤 Output Summary</h3>
-                    <div class="trace-code">${escapeHtml(run.output_summary)}</div>
+                    <div class="trace-code trace-code-full">${formatOutputSummary(run.output_summary)}</div>
                 </div>
             ` : ''}
 
             ${run.error_type ? `
                 <div class="trace-section">
                     <h3>❌ Error: ${escapeHtml(run.error_type)}</h3>
-                    <div class="trace-code" style="color:#fca5a5">${escapeHtml(run.error_message || '')}</div>
+                    <div class="trace-code" style="color:#b91c1c">${escapeHtml(run.error_message || '')}</div>
                 </div>
             ` : ''}
 
             ${run.error_traceback ? `
                 <div class="trace-section">
                     <h3>🔍 Full Traceback</h3>
-                    <div class="trace-code">${escapeHtml(run.error_traceback)}</div>
+                    <div class="trace-code trace-code-full">${escapeHtml(run.error_traceback)}</div>
                 </div>
             ` : ''}
         `;
@@ -930,3 +1044,138 @@ function viewJobRuns(requestId) {
 
 // Filter listener
 document.getElementById('filter-job-status')?.addEventListener('change', loadJobQueue);
+
+// ════════════════════════════════════════════════════════════════════════
+// RESPONSE EVALUATION
+// ════════════════════════════════════════════════════════════════════════
+
+let evalChart = null;
+
+const CACHE_STATUS_BADGES = {
+    hit: '<span class="badge badge-completed">Hit</span>',
+    miss: '<span class="badge badge-pending">Miss</span>',
+    updated: '<span class="badge badge-partial">Updated</span>',
+};
+
+function boolBadge(val) {
+    return val
+        ? '<span class="badge badge-completed">✓</span>'
+        : '<span class="badge badge-failed">✗</span>';
+}
+
+async function loadResponseEval() {
+    const days = document.getElementById('eval-days')?.value || 30;
+    const agentFilter = document.getElementById('eval-agent-filter')?.value || '';
+
+    try {
+        // Load summary KPIs
+        const summaryResp = await fetch(`/admin/api/evaluations/summary?days=${days}`);
+        const summary = await summaryResp.json();
+
+        animateValue('kpi-determinism', summary.avg_determinism_score != null ? summary.avg_determinism_score + '%' : '—');
+        animateValue('kpi-cache-hit', summary.cache_hit_rate != null ? summary.cache_hit_rate + '%' : '—');
+        animateValue('kpi-schema-compliance', summary.schema_compliance_rate != null ? summary.schema_compliance_rate + '%' : '—');
+        animateValue('kpi-completeness', summary.avg_field_completeness != null ? summary.avg_field_completeness + '%' : '—');
+
+        // Load cache stats for entry count
+        try {
+            const cacheResp = await fetch('/admin/api/cache/stats');
+            const cacheData = await cacheResp.json();
+            animateValue('kpi-cache-entries', `${cacheData.active_entries}/${cacheData.total_entries}`);
+        } catch { animateValue('kpi-cache-entries', '—'); }
+
+        // Render chart from by_agent data
+        renderEvalChart(summary.by_agent || []);
+
+        // Load evaluation table
+        let evalUrl = `/admin/api/evaluations?limit=50`;
+        if (agentFilter) evalUrl += `&agent_name=${agentFilter}`;
+
+        const evalsResp = await fetch(evalUrl);
+        const evals = await evalsResp.json();
+
+        const tbody = document.getElementById('eval-tbody');
+        if (!evals.length) {
+            tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text-muted);padding:2rem">No evaluations found.</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = evals.map(ev => `
+            <tr>
+                <td><strong>${escapeHtml(AGENT_LABELS[ev.agent_name] || ev.agent_name)}</strong></td>
+                <td>${CACHE_STATUS_BADGES[ev.cache_status] || ev.cache_status}</td>
+                <td>${boolBadge(ev.json_valid)}</td>
+                <td>${boolBadge(ev.schema_compliant)}</td>
+                <td>${ev.field_completeness_pct != null ? ev.field_completeness_pct.toFixed(1) + '%' : '—'}</td>
+                <td>${ev.determinism_score != null ? ev.determinism_score.toFixed(1) + '%' : '—'}</td>
+                <td>${boolBadge(ev.confidence_score_valid)}</td>
+                <td>${ev.latency_ms ? (ev.latency_ms / 1000).toFixed(1) + 's' : '—'}</td>
+                <td>${ev.created_at ? new Date(ev.created_at).toLocaleString() : '—'}</td>
+            </tr>
+        `).join('');
+    } catch (err) {
+        console.error('Response eval load error:', err);
+    }
+}
+
+function renderEvalChart(byAgent) {
+    const ctx = document.getElementById('chart-eval');
+    if (!ctx) return;
+    if (evalChart) evalChart.destroy();
+
+    if (!byAgent.length) {
+        evalChart = null;
+        return;
+    }
+
+    const agents = byAgent.map(a => a.agent_name);
+    const determinism = byAgent.map(a => a.avg_determinism || 0);
+    const completeness = byAgent.map(a => a.avg_completeness || 0);
+    const schema = byAgent.map(a => a.schema_compliance_rate || 0);
+
+    evalChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: agents.map(a => AGENT_LABELS[a] || a),
+            datasets: [
+                {
+                    label: 'Determinism %',
+                    data: determinism,
+                    backgroundColor: 'rgba(34, 197, 94, 0.7)',
+                    borderRadius: 4,
+                },
+                {
+                    label: 'Completeness %',
+                    data: completeness,
+                    backgroundColor: 'rgba(59, 130, 246, 0.7)',
+                    borderRadius: 4,
+                },
+                {
+                    label: 'Schema Compliance %',
+                    data: schema,
+                    backgroundColor: 'rgba(168, 85, 247, 0.7)',
+                    borderRadius: 4,
+                },
+            ]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: { labels: { color: '#475569', font: { family: "'Inter'" } } }
+            },
+            scales: {
+                x: { ticks: { color: '#475569' }, grid: { display: false }, border: { display: false } },
+                y: {
+                    ticks: { color: '#94a3b8', callback: v => v + '%' },
+                    grid: { color: 'rgba(37,99,235,0.06)' },
+                    border: { display: false },
+                    max: 100,
+                }
+            }
+        }
+    });
+}
+
+// Evaluation filter listeners
+document.getElementById('eval-days')?.addEventListener('change', loadResponseEval);
+document.getElementById('eval-agent-filter')?.addEventListener('change', loadResponseEval);

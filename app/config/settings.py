@@ -82,6 +82,10 @@ class Settings(BaseSettings):
     cache_ttl_financial: int = 43_200  # 12 h
     cache_ttl_metadata: int = 604_800  # 7 d
 
+    # ── LLM Response Cache ──
+    llm_cache_enabled: bool = Field(default=True, alias="LLM_CACHE_ENABLED")
+    llm_cache_ttl_hours: int = Field(default=24, alias="LLM_CACHE_TTL_HOURS")
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 
 settings = Settings()

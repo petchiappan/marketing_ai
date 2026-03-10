@@ -21,9 +21,9 @@ class FinancialAgentData(BaseModel):
     """Payload containing the financial / firmographic analysis."""
 
     company_profile: CompanyProfile = Field(..., description="Company firmographic profile")
-    firmographic_score: int = Field(0, description="Firmographic fit score (0-100)")
-    growth_score: int = Field(0, description="Growth trajectory score (0-100)")
-    industry_match_score: int = Field(0, description="Industry match relevance score (0-100)")
+    firmographic_score: int = Field(0, ge=0, le=100, description="Firmographic fit score (0-100)")
+    growth_score: int = Field(0, ge=0, le=100, description="Growth trajectory score (0-100)")
+    industry_match_score: int = Field(0, ge=0, le=100, description="Industry match relevance score (0-100)")
 
 
 class SourceMetadata(BaseModel):
@@ -49,5 +49,5 @@ class FinancialAgentOutput(BaseModel):
     execution_time_ms: int = Field(0, description="Execution time in milliseconds")
     data: FinancialAgentData = Field(..., description="Financial data payload")
     errors: list[str] = Field(default_factory=list, description="List of errors, if any")
-    confidence_score: float = Field(0.0, description="Overall confidence score")
+    confidence_score: float = Field(0.0, ge=0.0, le=1.0, description="Overall confidence score")
     source_metadata: SourceMetadata = Field(..., description="Source provider metadata")
