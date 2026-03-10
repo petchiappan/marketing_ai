@@ -18,6 +18,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     setupLogout();
     setupModal();
     document.getElementById('add-tool-btn').addEventListener('click', addTool);
+    setupNewEnrichmentForm();
     await loadDashboard();
     startAutoRefresh();
 });
@@ -87,6 +88,72 @@ function setupSidebar() {
     const toggle = document.getElementById('sidebar-toggle');
     const sidebar = document.getElementById('sidebar');
     toggle.addEventListener('click', () => sidebar.classList.toggle('collapsed'));
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// NEW ENRICHMENT FORM (search / submit company)
+// ════════════════════════════════════════════════════════════════════════
+
+function setupNewEnrichmentForm() {
+    const form = document.getElementById('new-enrichment-form');
+    if (!form) return;
+
+    form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const companyInput = document.getElementById('new-enrichment-company');
+        const requestedByInput = document.getElementById('new-enrichment-requested-by');
+        const btn = document.getElementById('new-enrichment-btn');
+        const companyName = companyInput.value.trim();
+        if (!companyName) return;
+
+        const btnText = btn.querySelector('.btn-text');
+        const btnLoader = btn.querySelector('.btn-loader');
+        btn.disabled = true;
+        if (btnText) btnText.classList.add('hidden');
+        if (btnLoader) btnLoader.classList.remove('hidden');
+
+        try {
+            const createResp = await fetch('/api/enrich/', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    company_name: companyName,
+                    source: 'web_form',
+                    requested_by: requestedByInput?.value?.trim() || null,
+                }),
+            });
+            if (!createResp.ok) {
+                const err = await createResp.json().catch(() => ({}));
+                showToast('error', 'Error', err.detail?.msg || err.detail || 'Failed to create request');
+                return;
+            }
+            const createData = await createResp.json();
+            const requestId = createData.id;
+
+            const triggerResp = await fetch(`/admin/api/trigger-enrichment/${requestId}`, { method: 'POST' });
+            if (!triggerResp.ok) {
+                const errData = await triggerResp.json().catch(() => ({}));
+                showToast('warning', 'Queued', `Request created (${requestId.slice(0, 8)}…) but trigger failed: ${errData.detail || 'see Job Queue to run manually.'}`);
+            } else {
+                showToast('success', 'Enrichment started', `"${companyName}" is now processing. View in Job Queue.`);
+            }
+            companyInput.value = '';
+            if (requestedByInput) requestedByInput.value = '';
+            switchSection('job-queue');
+            loadJobQueue();
+        } catch (err) {
+            console.error('New enrichment error:', err);
+            showToast('error', 'Error', 'Failed to submit. Check console.');
+        } finally {
+            btn.disabled = false;
+            if (btnText) btnText.classList.remove('hidden');
+            if (btnLoader) btnLoader.classList.add('hidden');
+        }
+    });
+
+    document.querySelectorAll('.nav-jump[data-section="job-queue"]').forEach(el => {
+        el.addEventListener('click', (e) => { e.preventDefault(); switchSection('job-queue'); loadJobQueue(); });
+    });
 }
 
 // ════════════════════════════════════════════════════════════════════════

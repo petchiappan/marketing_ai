@@ -63,8 +63,8 @@ class Settings(BaseSettings):
     groq_base_url: str = Field(default="https://api.groq.com/openai/v1", alias="GROQ_BASE_URL")
     groq_model: str = Field(default="openai/gpt-oss-20b", alias="GROQ_MODEL")
 
-    #SSL
-    disable_ssl_verification: bool = Field(default=True, alias="DISABLE_SSL_VERIFICATION")
+    # SSL verification (set True only if behind corporate proxy / self-signed certs)
+    disable_ssl_verification: bool = Field(default=False, alias="DISABLE_SSL_VERIFICATION")
 
     @property
     def llm_identifier(self) -> str:

@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Any
+
+# Template dir: same repo root as this file (app/api/admin_routes.py → app/admin/templates)
+_ADMIN_TEMPLATES = Path(__file__).resolve().parent.parent / "admin" / "templates"
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -28,15 +32,15 @@ router = APIRouter(tags=["admin"])
 @router.get("/admin/login", response_class=HTMLResponse)
 async def login_page():
     """Serve the admin login page."""
-    with open("app/admin/templates/login.html", "r", encoding="utf-8") as f:
-        return HTMLResponse(content=f.read())
+    path = _ADMIN_TEMPLATES / "login.html"
+    return HTMLResponse(content=path.read_text(encoding="utf-8"))
 
 
 @router.get("/admin", response_class=HTMLResponse)
 async def admin_dashboard(user: AdminUser = Depends(get_current_user)):
     """Serve the main admin dashboard."""
-    with open("app/admin/templates/dashboard.html", "r", encoding="utf-8") as f:
-        return HTMLResponse(content=f.read())
+    path = _ADMIN_TEMPLATES / "dashboard.html"
+    return HTMLResponse(content=path.read_text(encoding="utf-8"))
 
 
 # ────────────────────────────────────────────────────────────────────────────

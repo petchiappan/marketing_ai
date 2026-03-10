@@ -6,7 +6,7 @@ import traceback
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -68,6 +68,32 @@ async def create_enrichment_request(
         company_name=req.company_name,
         status=req.status,
         message="Enrichment request queued for processing.",
+    )
+
+
+@router.post("/submit-and-run", response_model=EnrichmentRequestOut, status_code=status.HTTP_202_ACCEPTED)
+async def submit_and_run_enrichment(
+    body: EnrichmentRequestIn,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+):
+    """Create an enrichment request and start the pipeline immediately. No auth required (for Copilot Studio / Teams plugin)."""
+    req = await repo.create_request(
+        db,
+        company_name=body.company_name,
+        source=body.source,
+        salesforce_lead_id=body.salesforce_lead_id,
+        additional_fields=body.additional_fields,
+        requested_by=body.requested_by,
+    )
+    await repo.update_request_status(db, req.id, "processing")
+    from app.agents.pipeline import run_enrichment_pipeline
+    background_tasks.add_task(run_enrichment_pipeline, req.id)
+    return EnrichmentRequestOut(
+        id=str(req.id),
+        company_name=req.company_name,
+        status="processing",
+        message="Enrichment started. Use the request id to check status or get the result.",
     )
 
 

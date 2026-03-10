@@ -1,0 +1,164 @@
+{
+  "openapi": "3.0.2",
+  "info": {
+    "title": "Marketing AI – Lead Enrichment",
+    "description": "Submit a company for lead enrichment, check request status, or get enriched lead result. Use for: 'enrich Acme Corp', 'status of my enrichment', 'get result for request X'.",
+    "version": "0.1.0"
+  },
+  "servers": [
+    { "url": "https://YOUR_API_BASE_URL", "description": "Replace with your app URL (e.g. ngrok or deployed host)" }
+  ],
+  "paths": {
+    "/api/enrich/submit-and-run": {
+      "post": {
+        "summary": "Submit and run enrichment",
+        "description": "Submit a company name and start lead enrichment immediately. Use when the user says 'enrich Microsoft', 'search for Acme Corp', or 'run enrichment for [company]'. Returns request id to check status or get result later.",
+        "operationId": "submitAndRunEnrichment",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["company_name"],
+                "properties": {
+                  "company_name": { "type": "string", "description": "Company name to enrich (e.g. Microsoft, Acme Corp)" },
+                  "source": { "type": "string", "enum": ["salesforce", "web_form", "api"], "default": "api" },
+                  "requested_by": { "type": "string", "description": "Optional user identifier" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Enrichment started",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": { "type": "string", "description": "Request ID - use for status or result" },
+                    "company_name": { "type": "string" },
+                    "status": { "type": "string" },
+                    "message": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/enrich/": {
+      "post": {
+        "summary": "Submit enrichment request (queue only)",
+        "description": "Create a new enrichment request without starting the pipeline. Use submit-and-run for one-step search.",
+        "operationId": "createEnrichmentRequest",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["company_name"],
+                "properties": {
+                  "company_name": { "type": "string", "description": "Company name to enrich" },
+                  "source": { "type": "string", "enum": ["salesforce", "web_form", "api"], "default": "api" },
+                  "requested_by": { "type": "string", "description": "Optional user identifier" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Request accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": { "type": "string" },
+                    "company_name": { "type": "string" },
+                    "status": { "type": "string" },
+                    "message": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "summary": "List enrichment requests",
+        "description": "List recent enrichment requests with optional status filter.",
+        "operationId": "listEnrichmentRequests",
+        "parameters": [
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 20 } },
+          { "name": "status_filter", "in": "query", "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "List of requests" }
+        }
+      }
+    },
+    "/api/enrich/{request_id}/status": {
+      "get": {
+        "summary": "Get enrichment status",
+        "description": "Check the status of an enrichment request by its ID. Use when the user asks for status of a request.",
+        "operationId": "getEnrichmentStatus",
+        "parameters": [
+          { "name": "request_id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Request status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": { "type": "string" },
+                    "company_name": { "type": "string" },
+                    "status": { "type": "string" },
+                    "created_at": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/enrich/{request_id}/result": {
+      "get": {
+        "summary": "Get enrichment result",
+        "description": "Retrieve the enriched lead data for a completed request. Use when the user wants the result or details for a request.",
+        "operationId": "getEnrichmentResult",
+        "parameters": [
+          { "name": "request_id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Enriched lead data",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "company_name": { "type": "string" },
+                    "industry": { "type": "string" },
+                    "contacts": { "type": "array" },
+                    "recent_news": { "type": "array" },
+                    "overall_confidence": { "type": "number" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

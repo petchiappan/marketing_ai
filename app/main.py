@@ -17,25 +17,19 @@ from app.config.settings import settings
 setup_logging()
 
 def _disable_ssl_verification():
-    import os
+    """Disable SSL verification for httpx when DISABLE_SSL_VERIFICATION=true (e.g. corporate proxy)."""
     import httpx
     _orig_client = httpx.Client
     _orig_async = httpx.AsyncClient
 
-    _proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("HTTP_PROXY")
-
     class NoVerifyClient(_orig_client):
         def __init__(self, *args, **kwargs):
-            kwargs["verify"] = False
-            if _proxy and "proxy" not in kwargs:
-                kwargs["proxy"] = _proxy
+            kwargs.setdefault("verify", False)
             super().__init__(*args, **kwargs)
 
     class NoVerifyAsyncClient(_orig_async):
         def __init__(self, *args, **kwargs):
-            kwargs["verify"] = False
-            if _proxy and "proxy" not in kwargs:
-                kwargs["proxy"] = _proxy
+            kwargs.setdefault("verify", False)
             super().__init__(*args, **kwargs)
 
     httpx.Client = NoVerifyClient
@@ -87,9 +81,6 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
-
-import os
-os.environ["SSL_VERIFY"] = "False"
 
 # ── Mount static files ──
 static_dir = Path(__file__).parent / "admin" / "static"

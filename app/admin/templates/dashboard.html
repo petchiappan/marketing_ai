@@ -67,6 +67,23 @@
                     <span class="badge badge-live" id="live-indicator">● Live</span>
                 </div>
 
+                <!-- New enrichment / Search -->
+                <div class="search-card glass">
+                    <h3>🔍 Enrich a company</h3>
+                    <p class="search-card-desc">Submit a company name to run lead enrichment (contacts via Apollo/Lusha/SignalHire, news, financials). The job is queued; use <strong>Job Queue</strong> to run it and view results.</p>
+                    <form id="new-enrichment-form" class="search-form">
+                        <div class="search-form-row">
+                            <input type="text" id="new-enrichment-company" name="company_name" placeholder="e.g. Microsoft, Acme Corp" required autocomplete="organization">
+                            <input type="text" id="new-enrichment-requested-by" name="requested_by" placeholder="Your name (optional)" autocomplete="name">
+                            <button type="submit" class="btn btn-primary" id="new-enrichment-btn">
+                                <span class="btn-text">Submit &amp; run</span>
+                                <span class="btn-loader hidden">⟳</span>
+                            </button>
+                        </div>
+                    </form>
+                    <p class="search-card-hint">After submitting, go to <a href="#" data-section="job-queue" class="nav-jump">Job Queue</a> to trigger the run and see status. When complete, use the same request ID in API or Traces to get the enriched result.</p>
+                </div>
+
                 <!-- KPI Cards -->
                 <div class="kpi-grid">
                     <div class="kpi-card glass">
