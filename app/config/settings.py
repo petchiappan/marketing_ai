@@ -86,6 +86,13 @@ class Settings(BaseSettings):
     llm_cache_enabled: bool = Field(default=True, alias="LLM_CACHE_ENABLED")
     llm_cache_ttl_hours: int = Field(default=24, alias="LLM_CACHE_TTL_HOURS")
 
+    # ── Company Intelligence dashboard (Next.js on :3000) ──
+    cors_origins: str = Field(
+        default="http://localhost:3000",
+        alias="CORS_ORIGINS",
+        description="Comma-separated origins for the SPA (e.g. http://localhost:3000,https://app.example.com)",
+    )
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 
 settings = Settings()

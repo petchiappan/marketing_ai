@@ -6,11 +6,13 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app.config.logging_config import setup_logging
 from app.api.enrichment_routes import router as enrichment_router
 from app.api.admin_routes import router as admin_router
+from app.api.intelligence_routes import router as intelligence_router
 from app.config.settings import settings
 
 # Initialise file-based logging (logs/marketing_ai_YYYY-MM-DD.log)
@@ -82,6 +84,16 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+_origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
+if _origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
 # ── Mount static files ──
 static_dir = Path(__file__).parent / "admin" / "static"
 if static_dir.exists():
@@ -89,6 +101,7 @@ if static_dir.exists():
 
 # ── Register routers ──
 app.include_router(enrichment_router)
+app.include_router(intelligence_router)
 app.include_router(admin_router)
 
 
