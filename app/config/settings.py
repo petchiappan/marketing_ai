@@ -1,7 +1,7 @@
 """Application settings loaded from environment variables."""
 
 from pydantic_settings import BaseSettings
-from pydantic import Field
+from pydantic import Field, field_validator
 
 
 class Settings(BaseSettings):
@@ -12,6 +12,16 @@ class Settings(BaseSettings):
         default="postgresql+asyncpg://postgres:postgres@localhost:5432/marketing_ai",
         alias="DATABASE_URL",
     )
+
+    @field_validator("database_url", mode="after")
+    @classmethod
+    def _ensure_asyncpg_driver(cls, v: str) -> str:
+        """Railway gives 'postgresql://…' but we need the asyncpg driver prefix."""
+        if v.startswith("postgresql://"):
+            v = v.replace("postgresql://", "postgresql+asyncpg://", 1)
+        elif v.startswith("postgres://"):
+            v = v.replace("postgres://", "postgresql+asyncpg://", 1)
+        return v
 
     # ── Redis ──
     redis_url: str = Field(default="redis://localhost:6379/0", alias="REDIS_URL")
