@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -12,6 +14,8 @@ from app.config.logging_config import setup_logging
 from app.api.enrichment_routes import router as enrichment_router
 from app.api.admin_routes import router as admin_router
 from app.config.settings import settings
+
+logger = logging.getLogger(__name__)
 
 # Initialise file-based logging (logs/marketing_ai_YYYY-MM-DD.log)
 setup_logging()
@@ -45,15 +49,17 @@ if settings.disable_ssl_verification:
     _disable_ssl_verification()
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Application lifespan – runs on startup and shutdown."""
+async def _init_db() -> None:
+    """Create tables and seed the default admin user.
+
+    Isolated into its own coroutine so it can be wrapped with asyncio.wait_for.
+    """
     from app.db.session import engine, async_session_factory
     from app.db.models import Base
     from app.db import repository as repo
     from app.auth.local_auth import hash_password
 
-    # Startup: ensure all tables exist (idempotent)
+    # Ensure all tables exist (idempotent)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
@@ -75,9 +81,33 @@ async def lifespan(app: FastAPI):
             except Exception:
                 await db.rollback()  # Another worker already inserted it
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan – runs on startup and shutdown."""
+    # Attempt database initialisation with a hard timeout so the app can still
+    # start (and pass healthchecks) even when the database is slow or
+    # temporarily unavailable.
+    try:
+        await asyncio.wait_for(_init_db(), timeout=10)
+        logger.info("Database initialisation completed successfully.")
+    except asyncio.TimeoutError:
+        logger.warning(
+            "Database initialisation timed out after 10 s – "
+            "the app will start without it and retry on first request."
+        )
+    except Exception as exc:
+        logger.warning(
+            "Database initialisation failed (%s: %s) – "
+            "the app will start without it and retry on first request.",
+            type(exc).__name__,
+            exc,
+        )
+
     yield
 
     # Shutdown: dispose engine
+    from app.db.session import engine
     await engine.dispose()
 
 
