@@ -103,7 +103,7 @@ app.include_router(admin_router)
 
 @app.get("/health", tags=["infra"])
 async def health():
-    """Health check endpoint for ECS / ALB target groups."""
+    """Health check endpoint for Railway / load balancer."""
     return {"status": "ok"}
 
 

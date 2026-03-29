@@ -33,15 +33,20 @@ htmlcov/
 .coverage
 .pytest_cache/
 
-# Docker
+# Docker & deployment configs (not needed inside image)
 docker-compose*.yml
 Dockerfile
+railway.toml
 
 # Docs & CI
 *.md
-deploy/
 .github/
 
 # OS files
 Thumbs.db
 .DS_Store
+
+# Misc
+logs/
+json/
+*.png
