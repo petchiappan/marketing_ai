@@ -77,8 +77,10 @@ function switchSection(sectionName) {
         'rate-limits': loadRateLimits,
         'token-usage': loadTokenUsage,
         'agent-runs': loadAgentRuns,
+        'workflow-runs': loadWorkflowRuns,
         'response-eval': loadResponseEval,
         'job-queue': loadJobQueue,
+        'settings': loadSettings,
     };
     if (loaders[sectionName]) loaders[sectionName]();
 }
@@ -223,13 +225,11 @@ function renderToolCard(tool) {
                 <span class="badge badge-${tool.health_status}">${tool.health_status}</span>
             </div>
             <div class="tool-card-body">
-                <div><span class="field-label">Name:</span> ${escapeHtml(tool.tool_name)}</div>
-                <div><span class="field-label">Agent:</span> ${escapeHtml(agentLabel)}</div>
-                <div><span class="field-label">Base URL:</span> ${tool.base_url ? escapeHtml(tool.base_url) : '—'}</div>
-                <div><span class="field-label">Auth:</span> ${tool.auth_type}</div>
-                <div><span class="field-label">API Key:</span> ${tool.has_api_key ? '✅ Configured' : '❌ Not set'}</div>
+                <div><span class="field-label">System Name:</span> ${escapeHtml(tool.tool_name)}</div>
+                <div><span class="field-label">Agent Assignment:</span> ${escapeHtml(agentLabel)}</div>
+                <div><span class="field-label">Env Config:</span> ${tool.env_configured ? '<span style="color:#22c55e">✅ Configured</span>' : '<span style="color:#ef4444">❌ Not set</span>'}</div>
                 <div>
-                    <span class="field-label">Enabled:</span>
+                    <span class="field-label">Status:</span>
                     <select class="enabled-select" onchange="toggleTool('${tool.tool_name}', this.value)">
                         <option value="true" ${tool.is_enabled ? 'selected' : ''}>Enabled</option>
                         <option value="false" ${!tool.is_enabled ? 'selected' : ''}>Disabled</option>
@@ -237,7 +237,7 @@ function renderToolCard(tool) {
                 </div>
             </div>
             <div class="tool-card-actions">
-                <button class="btn btn-sm btn-outline" onclick="editTool('${tool.tool_name}')">Edit</button>
+                <button class="btn btn-sm btn-outline" onclick="editTool('${tool.tool_name}')">Configure Mapping</button>
                 <button class="btn btn-sm btn-outline" onclick="healthCheck('${tool.tool_name}')">Health Check</button>
             </div>
         </div>
@@ -247,7 +247,7 @@ function renderToolCard(tool) {
 function addTool() {
     openModal('Add New Tool', `
         <div class="form-group">
-            <label>Tool Name <span style="color:#ef4444">*</span></label>
+            <label>Tool Name (Pattern: TOOL_{NAME}_API_KEY) <span style="color:#ef4444">*</span></label>
             <input id="add-tool-name" placeholder="e.g. lusha, apollo">
         </div>
         <div class="form-group">
@@ -255,33 +255,19 @@ function addTool() {
             <input id="add-display-name" placeholder="Tool display name">
         </div>
         <div class="form-group">
-            <label>Agent</label>
+            <label>Agent Mapping</label>
             <select id="add-agent-name">${agentSelectHtml('')}</select>
         </div>
         <div class="form-group">
-            <label>Base URL</label>
-            <input id="add-base-url" placeholder="https://api.example.com">
-        </div>
-        <div class="form-group">
-            <label>API Key</label>
-            <input id="add-api-key" type="password" placeholder="Enter API key">
-        </div>
-        <div class="form-group">
-            <label>Auth Type</label>
-            <select id="add-auth-type">
-                <option value="api_key">API Key</option>
-                <option value="bearer">Bearer Token</option>
-                <option value="oauth2">OAuth2</option>
-                <option value="basic">Basic Auth</option>
-            </select>
-        </div>
-        <div class="form-group">
-            <label>Enabled</label>
+            <label>Status</label>
             <select id="add-is-enabled">
                 <option value="true" selected>Enabled</option>
                 <option value="false">Disabled</option>
             </select>
         </div>
+        <p class="form-hint" style="font-size:0.8rem;color:var(--text-muted);margin-top:0.5rem">
+            Note: API keys and Base URLs must be configured in the <code>.env</code> file using <code>TOOL_{NAME}_API_KEY</code> pattern.
+        </p>
     `, async () => {
         const toolName = document.getElementById('add-tool-name').value.trim();
         if (!toolName) {
@@ -294,11 +280,6 @@ function addTool() {
         body.display_name = displayName || toolName;
         const agentName = document.getElementById('add-agent-name').value;
         if (agentName) body.agent_name = agentName;
-        const baseUrl = document.getElementById('add-base-url').value.trim();
-        if (baseUrl) body.base_url = baseUrl;
-        const apiKey = document.getElementById('add-api-key').value;
-        if (apiKey) body.api_key = apiKey;
-        body.auth_type = document.getElementById('add-auth-type').value;
         body.is_enabled = document.getElementById('add-is-enabled').value === 'true';
 
         try {
@@ -351,51 +332,32 @@ async function editTool(toolName) {
         currentTool = tools.find(t => t.tool_name === toolName) || {};
     } catch (e) { /* ignore, fields will be blank */ }
 
-    openModal('Edit Tool: ' + toolName, `
+    openModal('Edit Tool Mapping: ' + toolName, `
         <div class="form-group">
             <label>Display Name</label>
             <input id="edit-display-name" placeholder="Tool display name" value="${escapeHtml(currentTool.display_name || '')}">
         </div>
         <div class="form-group">
-            <label>Agent</label>
+            <label>Agent Mapping</label>
             <select id="edit-agent-name">${agentSelectHtml(currentTool.agent_name)}</select>
         </div>
         <div class="form-group">
-            <label>Base URL</label>
-            <input id="edit-base-url" placeholder="https://api.example.com" value="${escapeHtml(currentTool.base_url || '')}">
-        </div>
-        <div class="form-group">
-            <label>API Key</label>
-            <input id="edit-api-key" type="password" placeholder="Enter new API key (leave blank to keep current)">
-        </div>
-        <div class="form-group">
-            <label>Auth Type</label>
-            <select id="edit-auth-type">
-                <option value="api_key" ${currentTool.auth_type === 'api_key' ? 'selected' : ''}>API Key</option>
-                <option value="bearer" ${currentTool.auth_type === 'bearer' ? 'selected' : ''}>Bearer Token</option>
-                <option value="oauth2" ${currentTool.auth_type === 'oauth2' ? 'selected' : ''}>OAuth2</option>
-                <option value="basic" ${currentTool.auth_type === 'basic' ? 'selected' : ''}>Basic Auth</option>
-            </select>
-        </div>
-        <div class="form-group">
-            <label>Enabled</label>
+            <label>Status</label>
             <select id="edit-is-enabled">
                 <option value="true" ${currentTool.is_enabled ? 'selected' : ''}>Enabled</option>
                 <option value="false" ${!currentTool.is_enabled ? 'selected' : ''}>Disabled</option>
             </select>
         </div>
+        <p class="form-hint" style="font-size:0.8rem;color:var(--text-muted);margin-top:0.5rem">
+            Note: Secrets for this tool are resolved from environment variables: 
+            <code>TOOL_${toolName.toUpperCase()}_API_KEY</code> and <code>TOOL_${toolName.toUpperCase()}_BASE_URL</code>.
+        </p>
     `, async () => {
         const body = {};
         const name = document.getElementById('edit-display-name').value;
         const agentName = document.getElementById('edit-agent-name').value;
-        const url = document.getElementById('edit-base-url').value;
-        const key = document.getElementById('edit-api-key').value;
-        const auth = document.getElementById('edit-auth-type').value;
         if (name) body.display_name = name;
         body.agent_name = agentName || null;
-        if (url) body.base_url = url;
-        if (key) body.api_key = key;
-        if (auth) body.auth_type = auth;
         body.is_enabled = document.getElementById('edit-is-enabled').value === 'true';
 
         await fetch(`/admin/api/tools/${toolName}`, {
@@ -579,7 +541,7 @@ async function loadAgentRuns() {
     const statusFilter = document.getElementById('filter-agent-status').value;
     const agentFilter = document.getElementById('filter-agent-name').value;
 
-    let url = '/admin/api/agent-runs?limit=50';
+    let url = '/admin/api/agent-runs?limit=50&pipeline_type=crew';
     if (statusFilter) url += `&status_filter=${statusFilter}`;
     if (agentFilter) url += `&agent_name=${agentFilter}`;
 
@@ -664,6 +626,83 @@ async function loadAgentRuns() {
         }).join('');
     } catch (err) {
         console.error('Agent runs load error:', err);
+    }
+}
+
+async function loadWorkflowRuns() {
+    const statusFilter = document.getElementById('filter-workflow-status').value;
+
+    let url = '/admin/api/agent-runs?limit=50&pipeline_type=workflow';
+    if (statusFilter) url += `&status_filter=${statusFilter}`;
+
+    try {
+        const resp = await fetch(url);
+        const jobs = await resp.json();
+        const container = document.getElementById('workflow-runs-container');
+
+        if (!jobs.length) {
+            container.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:3rem 0">No workflow runs found.</p>';
+            return;
+        }
+
+        container.innerHTML = jobs.map((job, idx) => {
+            const agentCount = job.agents ? job.agents.length : 0;
+            const completedCount = job.agents ? job.agents.filter(a => a.status === 'completed').length : 0;
+            
+            const agentsHtml = (job.agents || []).map(agent => `
+                <div class="agent-run-card glass">
+                    <div class="agent-run-card-header">
+                        <span class="agent-run-icon">🛤️</span>
+                        <span class="agent-run-name">Deterministic Workflow</span>
+                        <span class="badge badge-${agent.status}">${agent.status}</span>
+                    </div>
+                    <div class="agent-run-card-body">
+                        <div class="agent-run-meta">
+                            <span class="agent-meta-label">Started</span>
+                            <span class="agent-meta-value">${agent.started_at ? new Date(agent.started_at).toLocaleString() : '—'}</span>
+                        </div>
+                        <div class="agent-run-meta">
+                            <span class="agent-meta-label">Duration</span>
+                            <span class="agent-meta-value">${agent.duration_ms ? (agent.duration_ms / 1000).toFixed(1) + 's' : '—'}</span>
+                        </div>
+                        ${agent.error_message ? `
+                        <div class="agent-run-meta agent-run-error">
+                            <span class="agent-meta-label">Error</span>
+                            <span class="agent-meta-value">${escapeHtml(agent.error_message)}</span>
+                        </div>
+                        ` : ''}
+                    </div>
+                    <div class="agent-run-card-footer">
+                        <button class="btn btn-sm btn-outline" onclick="viewTrace('${agent.id}', 'workflow-runs')">🔍 View Trace</button>
+                    </div>
+                </div>
+            `).join('');
+
+            return `
+                <div class="job-group glass">
+                    <div class="job-header" onclick="toggleJobPanel(this)" id="job-header-wf-${idx}">
+                        <div class="job-header-left">
+                            <span class="job-chevron">▶</span>
+                            <div class="job-info">
+                                <span class="job-company">${escapeHtml(job.company_name)}</span>
+                                <span class="job-request-id">${job.request_id.substring(0, 8)}…</span>
+                            </div>
+                        </div>
+                        <div class="job-header-right">
+                            <span class="badge badge-${job.status}">${job.status}</span>
+                            <span class="job-time">${job.created_at ? new Date(job.created_at).toLocaleString() : '—'}</span>
+                        </div>
+                    </div>
+                    <div class="job-agents-panel" id="job-panel-wf-${idx}">
+                        <div class="job-agents-grid">
+                            ${agentsHtml}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    } catch (err) {
+        console.error('Workflow runs load error:', err);
     }
 }
 
@@ -950,6 +989,125 @@ function showConfirm(title, message) {
     });
 }
 
+// ════════════════════════════════════════════════════════════════════════
+// SYSTEM SETTINGS
+// ════════════════════════════════════════════════════════════════════════
+
+let currentPipeline = 'crew';
+
+async function loadSettings() {
+    try {
+        const resp = await fetch('/admin/api/settings');
+        const data = await resp.json();
+
+        // Pipeline mode
+        const pipeline = data.enrichment_pipeline?.value || 'crew';
+        currentPipeline = pipeline;
+        updatePipelineUI(pipeline);
+
+        // Pipeline info
+        const info = document.getElementById('pipeline-info');
+        if (data.enrichment_pipeline?.updated_by) {
+            info.innerHTML = `
+                <span class="settings-meta">
+                    Last changed by <strong>${escapeHtml(data.enrichment_pipeline.updated_by)}</strong>
+                    ${data.enrichment_pipeline.updated_at ? ' on ' + new Date(data.enrichment_pipeline.updated_at).toLocaleString() : ''}
+                </span>
+            `;
+        } else {
+            info.innerHTML = '<span class="settings-meta">Using default setting</span>';
+        }
+
+        // Few-shot limit
+        const fewShotInput = document.getElementById('few-shot-limit');
+        if (fewShotInput && data.few_shot_limit) {
+            fewShotInput.value = data.few_shot_limit.value || '3';
+        }
+
+        // Status badge
+        const statusBadge = document.getElementById('settings-status');
+        statusBadge.textContent = `Pipeline: ${pipeline}`;
+        statusBadge.className = `badge ${pipeline === 'workflow' ? 'badge-processing' : 'badge-completed'}`;
+
+    } catch (err) {
+        console.error('Settings load error:', err);
+        showToast('error', 'Error', 'Failed to load settings.');
+    }
+}
+
+function updatePipelineUI(activePipeline) {
+    const sel = document.getElementById('pipeline-select');
+    if (sel) sel.value = activePipeline;
+}
+
+async function switchPipeline(newValue) {
+    if (newValue === currentPipeline) return;
+
+    const labels = { crew: 'Crew (Agent-Driven)', workflow: 'Workflow (Deterministic)' };
+    const confirmed = await showConfirm(
+        'Switch Pipeline',
+        `Switch enrichment pipeline from "${labels[currentPipeline]}" to "${labels[newValue]}"?\n\nAll future enrichment requests will use the new pipeline.`
+    );
+    if (!confirmed) {
+        // Revert the dropdown
+        updatePipelineUI(currentPipeline);
+        return;
+    }
+
+    try {
+        const resp = await fetch(`/admin/api/settings/enrichment_pipeline`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ value: newValue }),
+        });
+
+        if (!resp.ok) {
+            const err = await resp.json().catch(() => ({}));
+            showToast('error', 'Error', err.detail || 'Failed to update pipeline.');
+            updatePipelineUI(currentPipeline);
+            return;
+        }
+
+        currentPipeline = newValue;
+        updatePipelineUI(newValue);
+        showToast('success', 'Pipeline Updated', `Enrichment pipeline switched to "${labels[newValue]}".`);
+        loadSettings();
+    } catch (err) {
+        console.error('Switch pipeline error:', err);
+        showToast('error', 'Error', 'Failed to switch pipeline.');
+        updatePipelineUI(currentPipeline);
+    }
+}
+
+async function saveFewShotLimit() {
+    const input = document.getElementById('few-shot-limit');
+    const value = input ? input.value : '3';
+
+    try {
+        const resp = await fetch('/admin/api/settings/few_shot_limit', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ value: value }),
+        });
+
+        if (!resp.ok) {
+            const err = await resp.json().catch(() => ({}));
+            showToast('error', 'Error', err.detail || 'Failed to save few-shot limit.');
+            return;
+        }
+
+        showToast('success', 'Saved', `Few-shot limit updated to ${value} examples.`);
+    } catch (err) {
+        console.error('Save few-shot limit error:', err);
+        showToast('error', 'Error', 'Failed to save few-shot limit.');
+    }
+}
+
+// Setup settings event handlers
+document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('save-few-shot-btn')?.addEventListener('click', saveFewShotLimit);
+});
+
 // ── Auto-refresh dashboard every 30s ──
 function startAutoRefresh() {
     if (refreshInterval) clearInterval(refreshInterval);
@@ -957,6 +1115,7 @@ function startAutoRefresh() {
         const activeSection = document.querySelector('.content-section.active');
         if (activeSection?.id === 'section-dashboard') loadDashboard();
         if (activeSection?.id === 'section-agent-runs') loadAgentRuns();
+        if (activeSection?.id === 'section-workflow-runs') loadWorkflowRuns();
         if (activeSection?.id === 'section-job-queue') loadJobQueue();
     }, 30000);
 }

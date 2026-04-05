@@ -38,6 +38,9 @@
                 <a href="#agent-runs" class="nav-link" data-section="agent-runs">
                     <span class="nav-icon">🏃</span><span class="nav-text">Agent Runs</span>
                 </a>
+                <a href="#workflow-runs" class="nav-link" data-section="workflow-runs">
+                    <span class="nav-icon">🛤️</span><span class="nav-text">Workflow Runs</span>
+                </a>
                 <a href="#response-eval" class="nav-link" data-section="response-eval">
                     <span class="nav-icon">📊</span><span class="nav-text">Response Evaluation</span>
                 </a>
@@ -46,6 +49,9 @@
                 </a>
                 <a href="#job-queue" class="nav-link" data-section="job-queue">
                     <span class="nav-icon">📋</span><span class="nav-text">Job Queue</span>
+                </a>
+                <a href="#settings" class="nav-link" data-section="settings">
+                    <span class="nav-icon">⚙️</span><span class="nav-text">Settings</span>
                 </a>
             </nav>
             <div class="sidebar-footer">
@@ -214,6 +220,26 @@
                 </div>
             </section>
 
+            <!-- Workflow Runs Section -->
+            <section class="content-section" id="section-workflow-runs">
+                <div class="section-header">
+                    <h1>Workflow Runs</h1>
+                    <div class="filter-group">
+                        <select id="filter-workflow-status">
+                            <option value="">All Statuses</option>
+                            <option value="queued">Queued</option>
+                            <option value="running">Running</option>
+                            <option value="completed">Completed</option>
+                            <option value="failed">Failed</option>
+                            <option value="timeout">Timeout</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="job-accordion" id="workflow-runs-container">
+                    <!-- Populated via JS -->
+                </div>
+            </section>
+
             <!-- Response Evaluation Section -->
             <section class="content-section" id="section-response-eval">
                 <div class="section-header">
@@ -312,6 +338,97 @@
                 <div class="trace-detail glass" id="trace-detail">
                     <p class="trace-placeholder">Select a failed agent run from the Agent Runs tab to view its trace.
                     </p>
+                </div>
+            </section>
+
+            <!-- Settings Section -->
+            <section class="content-section" id="section-settings">
+                <div class="section-header">
+                    <h1>System Settings</h1>
+                    <span class="badge badge-completed" id="settings-status"></span>
+                </div>
+
+                <!-- Pipeline Selector -->
+                <div class="settings-grid">
+                    <div class="settings-card glass">
+                        <div class="settings-card-icon">🔀</div>
+                        <div class="settings-card-content">
+                            <h3>Enrichment Pipeline</h3>
+                            <p class="settings-description">Choose how lead enrichment is processed. <strong>Crew</strong> uses autonomous CrewAI agents. <strong>Workflow</strong> uses deterministic code + a single LLM call.</p>
+                            <div class="settings-input-row">
+                                <label for="pipeline-select">Active Pipeline</label>
+                                <select id="pipeline-select" class="pipeline-select" onchange="switchPipeline(this.value)">
+                                    <option value="crew">🤖 Crew (Agent-Driven)</option>
+                                    <option value="workflow">⚡ Workflow (Deterministic)</option>
+                                </select>
+                            </div>
+                            <div class="pipeline-info" id="pipeline-info"></div>
+                        </div>
+                    </div>
+
+                    <div class="settings-card glass">
+                        <div class="settings-card-icon">🎓</div>
+                        <div class="settings-card-content">
+                            <h3>Few-Shot Prompt Bank</h3>
+                            <p class="settings-description">Max number of high-rated examples injected into LLM prompts for quality improvement.</p>
+                            <div class="settings-input-row">
+                                <label for="few-shot-limit">Max Examples per Call</label>
+                                <input type="number" id="few-shot-limit" min="0" max="10" value="3" class="settings-input">
+                                <button class="btn btn-primary btn-sm" id="save-few-shot-btn">Save</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Pipeline comparison -->
+                <div class="settings-comparison glass">
+                    <h3>Pipeline Comparison</h3>
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Feature</th>
+                                <th>🤖 Crew (Agent-Driven)</th>
+                                <th>⚡ Workflow (Deterministic)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><strong>API Selection</strong></td>
+                                <td>LLM decides which tool to call</td>
+                                <td>Code decides (if/else logic)</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Data Fetching</strong></td>
+                                <td>Agent calls tools via CrewAI</td>
+                                <td>Direct httpx with retries</td>
+                            </tr>
+                            <tr>
+                                <td><strong>LLM Calls</strong></td>
+                                <td>Multiple (per agent + aggregation)</td>
+                                <td>Single call (merge + score + insights)</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Control Flow</strong></td>
+                                <td>LLM-controlled (autonomous)</td>
+                                <td>Python-controlled (deterministic)</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Token Usage</strong></td>
+                                <td>Higher (agents iterate)</td>
+                                <td>Lower (1 call only)</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Predictability</strong></td>
+                                <td>Variable output quality</td>
+                                <td>Consistent, reproducible</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Few-Shot Learning</strong></td>
+                                <td>Not integrated</td>
+                                <td>✅ High-rated outputs improve future calls</td>
+                            </tr>
+                        </tbody>
+                    </table>
                 </div>
             </section>
 

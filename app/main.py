@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from app.config.logging_config import setup_logging
 from app.api.enrichment_routes import router as enrichment_router
 from app.api.admin_routes import router as admin_router
+from app.api.feedback_routes import router as feedback_router
 from app.config.settings import settings
 
 # Initialise file-based logging (logs/marketing_ai_YYYY-MM-DD.log)
@@ -75,6 +76,21 @@ async def lifespan(app: FastAPI):
             except Exception:
                 await db.rollback()  # Another worker already inserted it
 
+    # Seed default system settings (idempotent)
+    _default_settings = [
+        ("enrichment_pipeline", "crew", "Which pipeline to use: 'workflow' or 'crew'"),
+        ("few_shot_limit", "3", "Max few-shot examples injected per LLM call"),
+    ]
+    async with async_session_factory() as db:
+        for key, value, desc in _default_settings:
+            existing = await repo.get_system_setting(db, key)
+            if not existing:
+                try:
+                    await repo.upsert_system_setting(db, key, value, desc)
+                    await db.commit()
+                except Exception:
+                    await db.rollback()
+
     yield
 
     # Shutdown: dispose engine
@@ -99,6 +115,7 @@ if static_dir.exists():
 # ── Register routers ──
 app.include_router(enrichment_router)
 app.include_router(admin_router)
+app.include_router(feedback_router)
 
 
 @app.get("/health", tags=["infra"])

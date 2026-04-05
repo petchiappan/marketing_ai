@@ -40,10 +40,15 @@ class Settings(BaseSettings):
         alias="AZURE_AD_REDIRECT_URI",
     )
 
-    # ── Encryption key for tool API secrets ──
-    tool_secret_encryption_key: str = Field(
-        default="", alias="TOOL_SECRET_ENCRYPTION_KEY"
-    )
+    # ── Tool APIs – Dynamic Retrieval ──
+    def get_tool_config(self, tool_name: str) -> dict[str, str | None]:
+        """Fetch TOOL_{NAME}_API_KEY and TOOL_{NAME}_BASE_URL from env vars."""
+        import os
+        prefix = f"TOOL_{tool_name.upper()}"
+        return {
+            "api_key": os.getenv(f"{prefix}_API_KEY"),
+            "base_url": os.getenv(f"{prefix}_BASE_URL"),
+        }
 
     # ── Default admin ──
     default_admin_email: str = Field(

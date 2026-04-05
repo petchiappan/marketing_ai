@@ -13,16 +13,20 @@ from app.db.models import (
     AdminUser,
     AgentRun,
     ContactResult,
+    EnhancementHistory,
     EnrichedLead,
     EnrichmentAuditLog,
     EnrichmentRequest,
+    FewShotExample,
     FinancialResult,
     LLMResponseCache,
     LLMTokenUsage,
     NewsResult,
     ProviderRateLimit,
     ResponseEvaluation,
+    SystemSetting,
     ToolConfig,
+    UserFeedback,
 )
 
 
@@ -339,6 +343,7 @@ async def list_agent_runs_grouped(
     offset: int = 0,
     status: str | None = None,
     agent_name: str | None = None,
+    exclude_agent_name: str | None = None,
     request_id: uuid.UUID | None = None,
 ) -> list[dict]:
     """Return agent runs grouped by their parent enrichment request.
@@ -355,6 +360,8 @@ async def list_agent_runs_grouped(
         stmt = stmt.where(AgentRun.status == status)
     if agent_name:
         stmt = stmt.where(AgentRun.agent_name == agent_name)
+    if exclude_agent_name:
+        stmt = stmt.where(AgentRun.agent_name != exclude_agent_name)
     if request_id:
         stmt = stmt.where(AgentRun.request_id == request_id)
 
@@ -615,3 +622,164 @@ async def get_evaluation_detail(
     db: AsyncSession, eval_id: uuid.UUID
 ) -> ResponseEvaluation | None:
     return await db.get(ResponseEvaluation, eval_id)
+
+
+# ---------------------------------------------------------------------------
+# System Settings
+# ---------------------------------------------------------------------------
+
+async def get_system_setting(db: AsyncSession, key: str) -> str | None:
+    """Get a system setting value by key."""
+    obj = await db.get(SystemSetting, key)
+    return obj.value if obj else None
+
+
+async def get_all_system_settings(db: AsyncSession) -> Sequence[SystemSetting]:
+    result = await db.execute(select(SystemSetting).order_by(SystemSetting.key))
+    return result.scalars().all()
+
+
+async def upsert_system_setting(
+    db: AsyncSession,
+    key: str,
+    value: str,
+    description: str | None = None,
+    updated_by: str | None = None,
+) -> SystemSetting:
+    existing = await db.get(SystemSetting, key)
+    if existing:
+        existing.value = value
+        if description is not None:
+            existing.description = description
+        existing.updated_by = updated_by
+        existing.updated_at = datetime.utcnow()
+        await db.flush()
+        return existing
+    obj = SystemSetting(key=key, value=value, description=description, updated_by=updated_by)
+    db.add(obj)
+    await db.flush()
+    return obj
+
+
+# ---------------------------------------------------------------------------
+# User Feedback
+# ---------------------------------------------------------------------------
+
+async def save_feedback(
+    db: AsyncSession,
+    request_id: uuid.UUID,
+    rating: int,
+    feedback_text: str | None = None,
+    rated_by: str | None = None,
+) -> UserFeedback:
+    obj = UserFeedback(
+        request_id=request_id,
+        rating=rating,
+        feedback_text=feedback_text,
+        rated_by=rated_by,
+    )
+    db.add(obj)
+    await db.flush()
+    return obj
+
+
+async def get_feedback_for_request(
+    db: AsyncSession, request_id: uuid.UUID
+) -> Sequence[UserFeedback]:
+    stmt = (
+        select(UserFeedback)
+        .where(UserFeedback.request_id == request_id)
+        .order_by(UserFeedback.created_at.desc())
+    )
+    result = await db.execute(stmt)
+    return result.scalars().all()
+
+
+# ---------------------------------------------------------------------------
+# Few-Shot Prompt Bank
+# ---------------------------------------------------------------------------
+
+async def promote_to_few_shot(
+    db: AsyncSession,
+    request_id: uuid.UUID,
+    company_name: str,
+    output_response: str,
+    rating: int,
+) -> FewShotExample:
+    """Promote a high-rated output to the few-shot prompt bank."""
+    obj = FewShotExample(
+        company_name=company_name,
+        output_response=output_response,
+        rating=rating,
+        source_request_id=request_id,
+    )
+    db.add(obj)
+    await db.flush()
+    return obj
+
+
+async def get_few_shot_examples(
+    db: AsyncSession,
+    *,
+    limit: int = 3,
+    min_rating: int = 4,
+) -> list[dict[str, Any]]:
+    """Get active few-shot examples ordered by rating desc, most recent first."""
+    stmt = (
+        select(FewShotExample)
+        .where(FewShotExample.is_active.is_(True))
+        .where(FewShotExample.rating >= min_rating)
+        .order_by(FewShotExample.rating.desc(), FewShotExample.created_at.desc())
+        .limit(limit)
+    )
+    result = await db.execute(stmt)
+    examples = result.scalars().all()
+    return [
+        {
+            "id": str(ex.id),
+            "company_name": ex.company_name,
+            "output_response": ex.output_response,
+            "rating": ex.rating,
+            "created_at": ex.created_at.isoformat() if ex.created_at else None,
+        }
+        for ex in examples
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Enhancement History
+# ---------------------------------------------------------------------------
+
+async def save_enhancement(
+    db: AsyncSession,
+    request_id: uuid.UUID,
+    original_output: str,
+    enhanced_output: str,
+    user_instructions: str | None = None,
+    enhancement_model: str | None = None,
+    token_usage: dict | None = None,
+) -> EnhancementHistory:
+    obj = EnhancementHistory(
+        request_id=request_id,
+        original_output=original_output,
+        enhanced_output=enhanced_output,
+        user_instructions=user_instructions,
+        enhancement_model=enhancement_model,
+        token_usage=token_usage or {},
+    )
+    db.add(obj)
+    await db.flush()
+    return obj
+
+
+async def update_enrichment_summary(
+    db: AsyncSession,
+    request_id: uuid.UUID,
+    new_summary: str,
+) -> None:
+    """Update the enriched lead summary (used by enhance button)."""
+    await db.execute(
+        update(EnrichedLead)
+        .where(EnrichedLead.request_id == request_id)
+        .values(enrichment_summary=new_summary, updated_at=datetime.utcnow())
+    )

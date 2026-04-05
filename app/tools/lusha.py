@@ -21,17 +21,14 @@ _MAX_RESULTS = 25
 
 
 async def _get_lusha_config() -> tuple[str, str]:
-    """Fetch Lusha API key and base URL from the tool_configs table.
+    """Check DB for enablement and fetch Lusha API key/URL from env.
 
     Returns:
         (api_key, base_url)
 
     Raises:
-        RuntimeError: if the tool is not configured or disabled.
+        RuntimeError: if the tool is disabled or missing env API key.
     """
-    # Create a disposable engine + session for this call.
-    # We can't reuse the global async_session_factory because it's bound
-    # to FastAPI's event loop, and this runs in a separate asyncio.run().
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
     engine = create_async_engine(settings.database_url, pool_size=1, max_overflow=0)
@@ -41,23 +38,20 @@ async def _get_lusha_config() -> tuple[str, str]:
         async with factory() as db:
             config = await get_tool_config(db, "lusha")
 
-        if config is None:
+        if config and not config.is_enabled:
+            raise RuntimeError("Lusha tool is disabled in the admin panel.")
+
+        # Resolve secrets from environment
+        env_config = settings.get_tool_config("lusha")
+        api_key = env_config.get("api_key")
+        base_url = env_config.get("base_url") or _DEFAULT_BASE_URL
+
+        if not api_key:
             raise RuntimeError(
-                "Lusha tool is not configured. "
-                "Add it via the admin panel → Tool Config."
-            )
-        if not config.is_enabled:
-            raise RuntimeError(
-                "Lusha tool is disabled. Enable it in the admin panel."
-            )
-        if not config.api_key_encrypted:
-            raise RuntimeError(
-                "Lusha API key is missing. "
-                "Set it in the admin panel → Tool Config → Lusha → Edit."
+                "Lusha API key is missing from environment variables (TOOL_LUSHA_API_KEY)."
             )
 
-        base_url = (config.base_url or _DEFAULT_BASE_URL).rstrip("/")
-        return config.api_key_encrypted, base_url
+        return api_key, base_url.rstrip("/")
     finally:
         await engine.dispose(close=False)
 

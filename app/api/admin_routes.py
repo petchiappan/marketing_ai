@@ -160,11 +160,6 @@ async def current_user(user: AdminUser = Depends(get_current_user)):
 class ToolConfigUpdate(BaseModel):
     display_name: str | None = None
     agent_name: str | None = None
-    base_url: str | None = None
-    api_key: str | None = None
-    auth_type: str | None = None
-    extra_headers: dict | None = None
-    extra_config: dict | None = None
     is_enabled: bool | None = None
 
 
@@ -180,12 +175,10 @@ async def list_tools(
             "tool_name": t.tool_name,
             "display_name": t.display_name,
             "agent_name": t.agent_name,
-            "base_url": t.base_url,
-            "auth_type": t.auth_type,
             "is_enabled": t.is_enabled,
             "health_status": t.health_status,
             "last_health_check": t.last_health_check.isoformat() if t.last_health_check else None,
-            "has_api_key": bool(t.api_key_encrypted),
+            "env_configured": bool(settings.get_tool_config(t.tool_name).get("api_key")),
         }
         for t in tools
     ]
@@ -204,22 +197,8 @@ async def update_tool(
         update_data["display_name"] = body.display_name
     if body.agent_name is not None:
         update_data["agent_name"] = body.agent_name
-    if body.base_url is not None:
-        update_data["base_url"] = body.base_url
-    if body.auth_type is not None:
-        update_data["auth_type"] = body.auth_type
-    if body.extra_headers is not None:
-        update_data["extra_headers"] = body.extra_headers
-    if body.extra_config is not None:
-        update_data["extra_config"] = body.extra_config
     if body.is_enabled is not None:
         update_data["is_enabled"] = body.is_enabled
-    if body.api_key is not None:
-        # In production, encrypt before storing:
-        # from cryptography.fernet import Fernet
-        # f = Fernet(settings.tool_secret_encryption_key)
-        # update_data["api_key_encrypted"] = f.encrypt(body.api_key.encode()).decode()
-        update_data["api_key_encrypted"] = body.api_key  # TODO: encrypt
     update_data["updated_by"] = user.email
 
     tool = await repo.upsert_tool_config(db, tool_name, **update_data)
@@ -237,13 +216,16 @@ async def check_tool_health(
     if not tool:
         raise HTTPException(status_code=404, detail="Tool not found")
 
-    # Placeholder health check – ping the base_url
+    # Health check – resolve base_url from env then ping
     health = "unknown"
-    if tool.base_url:
+    env_config = settings.get_tool_config(tool_name)
+    base_url = env_config.get("base_url")
+
+    if base_url:
         import httpx
         try:
             async with httpx.AsyncClient(timeout=5.0, verify=False) as client:
-                resp = await client.get(tool.base_url)
+                resp = await client.get(base_url)
                 health = "healthy" if resp.status_code < 500 else "degraded"
         except Exception as e:
             print(f"An unexpected error occurred: {e}")
@@ -339,12 +321,20 @@ async def list_agent_runs(
     status_filter: str | None = None,
     agent_name: str | None = None,
     request_id: str | None = None,
+    pipeline_type: str | None = None,
     user: AdminUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """List agent runs grouped by enrichment request (job)."""
+    exclude_agent_name = None
+    if pipeline_type == "crew":
+        exclude_agent_name = "workflow_pipeline"
+    elif pipeline_type == "workflow":
+        agent_name = "workflow_pipeline"
+
     grouped = await repo.list_agent_runs_grouped(
         db, limit=limit, offset=offset, status=status_filter, agent_name=agent_name,
+        exclude_agent_name=exclude_agent_name,
         request_id=uuid.UUID(request_id) if request_id else None,
     )
     return grouped
@@ -440,6 +430,60 @@ async def dashboard_kpis(
             "identifier": settings.llm_identifier,
         },
     }
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# System Settings (Pipeline Mode, etc.)
+# ────────────────────────────────────────────────────────────────────────────
+
+class SettingUpdate(BaseModel):
+    value: str = Field(..., max_length=500)
+    updated_by: str | None = None
+
+
+@router.get("/admin/api/settings")
+async def get_system_settings(
+    user: AdminUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get all system settings — used by admin panel."""
+    all_settings = await repo.get_all_system_settings(db)
+    return {
+        s.key: {
+            "value": s.value,
+            "description": s.description,
+            "updated_by": s.updated_by,
+            "updated_at": s.updated_at.isoformat() if s.updated_at else None,
+        }
+        for s in all_settings
+    }
+
+
+@router.put("/admin/api/settings/{key}")
+async def update_system_setting(
+    key: str,
+    body: SettingUpdate,
+    user: AdminUser = Depends(require_editor_or_above),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update a system setting (e.g., switch pipeline mode)."""
+    # Validate known settings
+    known_keys = {"enrichment_pipeline", "few_shot_limit"}
+    if key not in known_keys:
+        raise HTTPException(status_code=400, detail=f"Unknown setting key: {key}")
+
+    # Validate enrichment_pipeline values
+    if key == "enrichment_pipeline" and body.value not in ("crew", "workflow"):
+        raise HTTPException(
+            status_code=400,
+            detail="enrichment_pipeline must be 'crew' or 'workflow'",
+        )
+
+    await repo.upsert_system_setting(
+        db, key, body.value, updated_by=body.updated_by or user.email,
+    )
+    await db.commit()
+    return {"key": key, "value": body.value, "status": "updated"}
 
 # ────────────────────────────────────────────────────────────────────────────
 # Response Evaluations

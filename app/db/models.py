@@ -267,11 +267,6 @@ class ToolConfig(Base):
     tool_name = Column(String(50), nullable=False, unique=True)
     display_name = Column(String(100), nullable=False)
     agent_name = Column(String(50), nullable=True)
-    base_url = Column(String(1000))
-    api_key_encrypted = Column(Text)
-    auth_type = Column(String(30), default="api_key")
-    extra_headers = Column(JSONB, default=dict)
-    extra_config = Column(JSONB, default=dict)
     is_enabled = Column(Boolean, nullable=False, default=True)
     health_status = Column(String(20), default="unknown")
     last_health_check = Column(DateTime(timezone=True))
@@ -282,7 +277,6 @@ class ToolConfig(Base):
     rate_limit = relationship("ProviderRateLimit", back_populates="tool", uselist=False)
 
     __table_args__ = (
-        CheckConstraint("auth_type IN ('api_key','oauth2','basic','bearer')", name="ck_tool_auth_type"),
         CheckConstraint("health_status IN ('healthy','degraded','down','unknown')", name="ck_tool_health"),
     )
 
@@ -428,5 +422,94 @@ class ResponseEvaluation(Base):
         Index("idx_eval_request", "request_id"),
         Index("idx_eval_agent", "agent_name"),
         Index("idx_eval_created", "created_at"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# System Settings (Admin-Configurable)
+# ---------------------------------------------------------------------------
+
+class SystemSetting(Base):
+    """Admin-configurable key-value settings (e.g. pipeline mode)."""
+    __tablename__ = "system_settings"
+
+    key = Column(String(100), primary_key=True)
+    value = Column(String(500), nullable=False)
+    description = Column(Text, nullable=True)
+    updated_by = Column(String(255), nullable=True)
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+# ---------------------------------------------------------------------------
+# User Feedback (Rating Loop)
+# ---------------------------------------------------------------------------
+
+class UserFeedback(Base):
+    """User rating for an enrichment output."""
+    __tablename__ = "user_feedback"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    request_id = Column(UUID(as_uuid=True), ForeignKey("enrichment_requests.id", ondelete="CASCADE"), nullable=False)
+    rating = Column(Integer, nullable=False)  # 1-5 stars
+    feedback_text = Column(Text, nullable=True)
+    rated_by = Column(String(255), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+
+    request = relationship("EnrichmentRequest")
+
+    __table_args__ = (
+        CheckConstraint("rating BETWEEN 1 AND 5", name="ck_feedback_rating"),
+        Index("idx_feedback_request", "request_id"),
+        Index("idx_feedback_created", "created_at"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Few-Shot Prompt Bank
+# ---------------------------------------------------------------------------
+
+class FewShotExample(Base):
+    """High-rated outputs promoted to the few-shot prompt bank."""
+    __tablename__ = "few_shot_examples"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    company_name = Column(String(500), nullable=False)
+    output_response = Column(Text, nullable=False)
+    rating = Column(Integer, nullable=False)  # 4 or 5
+    source_request_id = Column(UUID(as_uuid=True), ForeignKey("enrichment_requests.id", ondelete="SET NULL"), nullable=True)
+    is_active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+
+    source_request = relationship("EnrichmentRequest")
+
+    __table_args__ = (
+        CheckConstraint("rating BETWEEN 4 AND 5", name="ck_fewshot_rating"),
+        Index("idx_fewshot_active", "is_active"),
+        Index("idx_fewshot_created", "created_at"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Enhancement History (Enhance Button)
+# ---------------------------------------------------------------------------
+
+class EnhancementHistory(Base):
+    """Track enhance button invocations."""
+    __tablename__ = "enhancement_history"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    request_id = Column(UUID(as_uuid=True), ForeignKey("enrichment_requests.id", ondelete="CASCADE"), nullable=False)
+    original_output = Column(Text, nullable=False)
+    enhanced_output = Column(Text, nullable=False)
+    user_instructions = Column(Text, nullable=True)
+    enhancement_model = Column(String(100), nullable=True)
+    token_usage = Column(JSONB, default=dict)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+
+    request = relationship("EnrichmentRequest")
+
+    __table_args__ = (
+        Index("idx_enhancement_request", "request_id"),
+        Index("idx_enhancement_created", "created_at"),
     )
 

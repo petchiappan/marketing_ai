@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import traceback
 import uuid
@@ -129,7 +130,109 @@ def _extract_token_counts(tu: object) -> tuple[int, int, int]:
 
 
 async def _run_pipeline(request_id: uuid.UUID) -> None:
-    """Execute the enrichment crew with per-agent tool access control."""
+    """Route to the correct pipeline based on DB system_settings."""
+    engine, session_factory = _make_session_factory()
+
+    try:
+        async with session_factory() as db:
+            # Check which pipeline the admin configured
+            pipeline_mode = await repo.get_system_setting(db, "enrichment_pipeline")
+            pipeline_mode = (pipeline_mode or "crew").lower().strip()
+
+        logger.info("Pipeline selector: mode='%s' for request=%s", pipeline_mode, request_id)
+
+        if pipeline_mode == "workflow":
+            await _run_workflow_pipeline(request_id)
+        else:
+            await _run_crew_pipeline(request_id)
+    except Exception as exc:
+        logger.exception("Pipeline selector failed for request=%s: %s", request_id, exc)
+        # Mark request as failed
+        try:
+            async with session_factory() as db:
+                await repo.update_request_status(db, request_id, "failed")
+                await db.commit()
+        except Exception:
+            pass
+    finally:
+        await engine.dispose(close=False)
+
+
+async def _run_workflow_pipeline(request_id: uuid.UUID) -> None:
+    """NEW: Deterministic workflow pipeline using CrewAI Flow.
+
+    Code handles all API selection, fetching, validation, retries, normalization.
+    LLM handles only data merging, dedup, scoring, and insight generation (1 call).
+    """
+    engine, session_factory = _make_session_factory()
+
+    try:
+        async with session_factory() as db:
+            req = await repo.get_request(db, request_id)
+            if not req:
+                logger.error("[Workflow] Request %s not found", request_id)
+                return
+
+            company = req.company_name
+            context = req.additional_fields or {}
+
+            # Load few-shot examples from the feedback loop
+            few_shots = await repo.get_few_shot_examples(db, limit=3, min_rating=4)
+
+            # Update request status
+            await repo.update_request_status(db, request_id, "processing")
+
+            # Create a single agent run entry for tracking
+            agent_run = await repo.create_agent_run(
+                db,
+                request_id=request_id,
+                agent_name="workflow_pipeline",
+                input_summary=f"Workflow enrichment for '{company}'",
+            )
+            await repo.start_agent_run(db, agent_run.id)
+            await db.commit()
+
+        # Run the deterministic flow (outside the DB session)
+        from app.flows.enrichment_flow import LeadEnrichmentFlow
+
+        loop = asyncio.get_event_loop()
+        flow = LeadEnrichmentFlow()
+        flow.state.request_id = str(request_id)
+        flow.state.company_name = company
+        flow.state.additional_context = context
+        flow.state.salesforce_lead_id = req.salesforce_lead_id
+        flow.state.few_shot_examples = few_shots
+
+        # kickoff() is synchronous in CrewAI Flows
+        await loop.run_in_executor(None, flow.kickoff)
+
+        logger.info("[Workflow] Completed for '%s'", company)
+
+        # Mark agent run as completed
+        async with session_factory() as db:
+            output_summary = "Workflow completed successfully"
+            if flow.state.final_output:
+                output_summary = json.dumps(flow.state.final_output, default=str)[:10000]
+            await repo.complete_agent_run(db, agent_run.id, output_summary)
+            await db.commit()
+
+    except Exception as exc:
+        logger.exception("[Workflow] Failed for request=%s: %s", request_id, exc)
+        async with session_factory() as db:
+            await repo.fail_agent_run(
+                db, agent_run.id,
+                error_type=type(exc).__name__,
+                error_message=str(exc),
+                error_traceback=traceback.format_exc(),
+            )
+            await repo.update_request_status(db, request_id, "failed")
+            await db.commit()
+    finally:
+        await engine.dispose(close=False)
+
+
+async def _run_crew_pipeline(request_id: uuid.UUID) -> None:
+    """EXISTING: CrewAI Crew pipeline — completely unchanged."""
     engine, session_factory = _make_session_factory()
 
     try:

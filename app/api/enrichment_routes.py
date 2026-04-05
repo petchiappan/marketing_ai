@@ -6,7 +6,7 @@ import traceback
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -52,9 +52,14 @@ class EnrichedLeadOut(BaseModel):
 @router.post("/", response_model=EnrichmentRequestOut, status_code=status.HTTP_202_ACCEPTED)
 async def create_enrichment_request(
     body: EnrichmentRequestIn,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ):
-    """Submit a new enrichment request (async processing)."""
+    """Submit a new enrichment request (async processing).
+
+    Triggers the enrichment pipeline in the background.
+    Works as the Salesforce Enrich button endpoint when source='salesforce'.
+    """
     req = await repo.create_request(
         db,
         company_name=body.company_name,
@@ -63,6 +68,11 @@ async def create_enrichment_request(
         additional_fields=body.additional_fields,
         requested_by=body.requested_by,
     )
+
+    # Trigger the pipeline (crew or workflow — based on DB system_settings)
+    from app.agents.pipeline import run_enrichment_pipeline
+    background_tasks.add_task(run_enrichment_pipeline, req.id)
+
     return EnrichmentRequestOut(
         id=str(req.id),
         company_name=req.company_name,
