@@ -473,10 +473,10 @@ async def update_system_setting(
         raise HTTPException(status_code=400, detail=f"Unknown setting key: {key}")
 
     # Validate enrichment_pipeline values
-    if key == "enrichment_pipeline" and body.value not in ("crew", "workflow"):
+    if key == "enrichment_pipeline" and body.value not in ("crew", "workflow", "hybrid"):
         raise HTTPException(
             status_code=400,
-            detail="enrichment_pipeline must be 'crew' or 'workflow'",
+            detail="enrichment_pipeline must be 'crew', 'workflow', or 'hybrid'",
         )
 
     await repo.upsert_system_setting(

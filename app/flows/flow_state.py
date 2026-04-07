@@ -18,6 +18,7 @@ class EnrichmentState(BaseModel):
     company_name: str = ""
     salesforce_lead_id: Optional[str] = None
     source: str = "api"
+    pipeline_mode: str = "workflow"
     additional_context: dict[str, Any] = {}
 
     # ── Step 2: API selection (code decides, not LLM) ──
@@ -37,6 +38,11 @@ class EnrichmentState(BaseModel):
 
     # ── LLM output ──
     llm_output: Optional[dict[str, Any]] = None
+
+    target_gap: list[str] = []
+    fallback_triggered: bool = False
+    fallback_recovered_data: dict[str, Any] = {}
+    enrichment_source: dict[str, str] = {}
 
     # ── Final ──
     final_output: Optional[dict[str, Any]] = None

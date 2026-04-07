@@ -9,6 +9,7 @@ from app.tools.apollo import search_apollo
 from app.tools.signal_hire import search_signal_hire
 from app.tools.news_search import search_company_news
 from app.tools.financial_data import fetch_financial_data
+from app.tools.web_search import perform_web_search
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +21,7 @@ TOOL_REGISTRY: dict[str, object] = {
     "signal_hire": search_signal_hire,
     "news_search": search_company_news,
     "financial_data": fetch_financial_data,
+    "web_search": perform_web_search,
 }
 
 
@@ -44,6 +46,7 @@ AGENT_TOOL_ASSIGNMENTS: dict[str, list[str]] = {
     "contact_agent": ["lusha", "apollo", "signal_hire"],
     "news_agent": ["news_search"],
     "financial_agent": ["financial_data"],
+    "fallback_agent": ["web_search", "news_search"],
 }
 
 

@@ -141,14 +141,164 @@ class LeadEnrichmentFlow(Flow[EnrichmentState]):
         )
         logger.info("[Workflow] Step 7 — LLM call completed")
 
-    # ── Step 8: Finalize & Store ─────────────────────────────────────────
+    # ── Step 7b: Hybrid Escalation Trigger ───────────────────────────────
 
     @listen(llm_intelligence)
+    def hybrid_trigger(self):
+        """Step 7b: Evaluate data and trigger Fallback Agent if needed.
+
+        Checks confidence score and completeness of the contacts.
+        If threshold fails, builds Target_Gap and calls the Fallback Agent.
+        """
+        if self.state.pipeline_mode != "hybrid":
+            return
+            
+        if not self.state.llm_output:
+            return
+
+        scores = self.state.llm_output.get("lead_scores", {})
+        confidence = float(scores.get("confidence_score", 1.0))
+        contacts = self.state.llm_output.get("merged_contacts", [])
+
+        # Logic for determining gap
+        gap = []
+        if confidence <= 0.70:
+            gap.append("overall_confidence_improvement")
+        
+        has_ceo_email = False
+        has_phone = False
+        for c in contacts:
+            if "ceo" in str(c.get("title", "")).lower() and c.get("email"):
+                has_ceo_email = True
+            if c.get("phone"):
+                has_phone = True
+
+        if not has_ceo_email:
+            gap.append("ceo_email")
+        if not has_phone:
+            gap.append("company_phone_number")
+        
+        # If no gaps or perfectly confident, we skip fallback
+        if not gap:
+            return
+
+        self.state.target_gap = gap
+        self.state.fallback_triggered = True
+
+        logger.info("[Workflow] Step 7b — Hybrid trigger activated. Target_Gap: %s", gap)
+
+        loop = asyncio.new_event_loop()
+        try:
+            loop.run_until_complete(self._run_hybrid_fallback(gap))
+        except Exception as e:
+            logger.warning("[Workflow] Step 7b — Fallback execution failed completely: %s", e)
+        finally:
+            loop.close()
+
+    async def _run_hybrid_fallback(self, gap: list[str]):
+        """Feature 2, 3, 5: Run fallback with Circuit Breaker, Redis Cache, and asyncio 30s timeouts."""
+        import redis.asyncio as aioredis
+        from app.config.settings import settings
+        
+        try:
+            r = aioredis.from_url(settings.redis_url)
+        except Exception as e:
+            logger.warning("Failed to connect to Redis for fallback caching: %s", e)
+            r = None
+            
+        # 1. CIRCUIT BREAKER (Feature 5)
+        if r:
+            try:
+                failures = int(await r.get("web_search_failures") or 0)
+                if failures >= 5:
+                    logger.warning("[Circuit Breaker] OPEN. >= 5 web failures. Skipping agent fallback.")
+                    return
+            except Exception as e:
+                logger.debug("Redis circuit breaker check failed: %s", e)
+                
+        # 2. AGENT CACHING (Feature 3)
+        cache_hits = {}
+        actual_gap = []
+        if r:
+            for g in gap:
+                try:
+                    cached = await r.get(f"agent_cache:{self.state.company_name}:{g}")
+                    if cached:
+                        cache_hits[g] = cached.decode("utf-8")
+                    else:
+                        actual_gap.append(g)
+                except Exception:
+                    actual_gap.append(g)
+        else:
+            actual_gap = gap
+            
+        if not actual_gap:
+            logger.info("All gap elements recovered from Redis cache!")
+            self.state.fallback_recovered_data = cache_hits
+            for k in cache_hits:
+                self.state.enrichment_source[k] = "Redis_Cache"
+            return
+            
+        from app.agents.fallback_agent import run_fallback
+        from app.tools.registry import get_agent_tool_assignments, resolve_tools
+        import concurrent.futures
+
+        tool_assignments = get_agent_tool_assignments()
+        fallback_tool_names = tool_assignments.get("fallback_agent", ["web_search", "news_search"])
+        fallback_tools = resolve_tools(fallback_tool_names)
+
+        fallback_result = {}
+        loop = asyncio.get_running_loop()
+        
+        # 3. ASYNCIO TIMEOUTS (Feature 2)
+        try:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                fallback_result = await asyncio.wait_for(
+                    loop.run_in_executor(
+                        pool,
+                        lambda: run_fallback(
+                            company_name=self.state.company_name,
+                            partial_data=self.state.llm_output or {},
+                            target_gap=actual_gap,
+                            tools=fallback_tools,
+                        )
+                    ),
+                    timeout=30.0  # 30 second strict timeout
+                )
+        except asyncio.TimeoutError:
+            logger.warning("[Fallback Timeout] Agent exceeded 30s. Gracefully aborting & retaining cache.")
+        except Exception as e:
+            logger.error("[Fallback Error] %s", e)
+            
+        recovered = fallback_result.get("recovered_data", {})
+        
+        # Merge hits
+        recovered.update(cache_hits)
+        
+        # Add to source lineage
+        for k in recovered.keys():
+            self.state.enrichment_source[k] = "Agent_Fallback_Search" if k not in cache_hits else "Redis_Cache"
+        
+        # Update cache for newly discovered items
+        if r:
+            for k, v in recovered.items():
+                if k not in cache_hits and v is not None:
+                    try:
+                        await r.setex(f"agent_cache:{self.state.company_name}:{k}", 2592000, str(v))
+                    except Exception:
+                        pass
+                        
+        self.state.fallback_recovered_data = recovered
+        logger.info("[Workflow] Step 7b — Fallback complete. Recovered: %s", recovered)
+
+    # ── Step 8: Finalize & Store ─────────────────────────────────────────
+
+    @listen(hybrid_trigger)
     def finalize_and_store(self):
         """Step 8: Build final output and store — pure Python."""
         self.state.final_output = {
             "company_name": self.state.company_name,
-            "pipeline": "workflow",
+            "pipeline": self.state.pipeline_mode,
             "merged_contacts": self.state.llm_output.get("merged_contacts", []) if self.state.llm_output else [],
             "lead_scores": self.state.llm_output.get("lead_scores", {}) if self.state.llm_output else {},
             "executive_summary": self.state.llm_output.get("executive_summary", "") if self.state.llm_output else "",
@@ -158,7 +308,23 @@ class LeadEnrichmentFlow(Flow[EnrichmentState]):
             "raw_news_count": len(self.state.normalized_news),
             "fetch_errors": self.state.fetch_errors,
             "sources_used": self.state.enabled_tools,
+            "fallback_triggered": self.state.fallback_triggered,
+            "fallback_recovered_data": self.state.fallback_recovered_data,
+            "enrichment_source": self.state.enrichment_source,
         }
+
+        # Setup standard deterministic sources (Feature 4)
+        if self.state.llm_output:
+            for c in self.state.llm_output.get("merged_contacts", []):
+                sources = c.get("sources", ["API"])
+                if c.get("email"):
+                    self.state.enrichment_source["ceo_email" if "ceo" in str(c.get("title", "")).lower() else "contact_email"] = sources[0]
+                if c.get("phone"):
+                    self.state.enrichment_source["company_phone_number"] = sources[0]
+
+        # Merge any specific items recovered directly into the root level of final_output
+        if self.state.fallback_recovered_data:
+            self.state.final_output.update(self.state.fallback_recovered_data)
 
         loop = asyncio.new_event_loop()
         try:

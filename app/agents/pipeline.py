@@ -141,8 +141,8 @@ async def _run_pipeline(request_id: uuid.UUID) -> None:
 
         logger.info("Pipeline selector: mode='%s' for request=%s", pipeline_mode, request_id)
 
-        if pipeline_mode == "workflow":
-            await _run_workflow_pipeline(request_id)
+        if pipeline_mode in ("workflow", "hybrid"):
+            await _run_workflow_pipeline(request_id, pipeline_mode)
         else:
             await _run_crew_pipeline(request_id)
     except Exception as exc:
@@ -158,7 +158,7 @@ async def _run_pipeline(request_id: uuid.UUID) -> None:
         await engine.dispose(close=False)
 
 
-async def _run_workflow_pipeline(request_id: uuid.UUID) -> None:
+async def _run_workflow_pipeline(request_id: uuid.UUID, pipeline_mode: str = "workflow") -> None:
     """NEW: Deterministic workflow pipeline using CrewAI Flow.
 
     Code handles all API selection, fetching, validation, retries, normalization.
@@ -202,6 +202,7 @@ async def _run_workflow_pipeline(request_id: uuid.UUID) -> None:
         flow.state.additional_context = context
         flow.state.salesforce_lead_id = req.salesforce_lead_id
         flow.state.few_shot_examples = few_shots
+        flow.state.pipeline_mode = pipeline_mode
 
         # kickoff() is synchronous in CrewAI Flows
         await loop.run_in_executor(None, flow.kickoff)
