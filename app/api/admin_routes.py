@@ -321,20 +321,13 @@ async def list_agent_runs(
     status_filter: str | None = None,
     agent_name: str | None = None,
     request_id: str | None = None,
-    pipeline_type: str | None = None,
     user: AdminUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """List agent runs grouped by enrichment request (job)."""
-    exclude_agent_name = None
-    if pipeline_type == "crew":
-        exclude_agent_name = "workflow_pipeline"
-    elif pipeline_type == "workflow":
-        agent_name = "workflow_pipeline"
-
     grouped = await repo.list_agent_runs_grouped(
         db, limit=limit, offset=offset, status=status_filter, agent_name=agent_name,
-        exclude_agent_name=exclude_agent_name,
+        exclude_agent_name=None,
         request_id=uuid.UUID(request_id) if request_id else None,
     )
     return grouped
@@ -468,16 +461,9 @@ async def update_system_setting(
 ):
     """Update a system setting (e.g., switch pipeline mode)."""
     # Validate known settings
-    known_keys = {"enrichment_pipeline", "few_shot_limit"}
+    known_keys = {"few_shot_limit"}
     if key not in known_keys:
         raise HTTPException(status_code=400, detail=f"Unknown setting key: {key}")
-
-    # Validate enrichment_pipeline values
-    if key == "enrichment_pipeline" and body.value not in ("crew", "workflow", "hybrid"):
-        raise HTTPException(
-            status_code=400,
-            detail="enrichment_pipeline must be 'crew', 'workflow', or 'hybrid'",
-        )
 
     await repo.upsert_system_setting(
         db, key, body.value, updated_by=body.updated_by or user.email,

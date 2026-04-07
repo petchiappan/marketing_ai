@@ -150,9 +150,6 @@ class LeadEnrichmentFlow(Flow[EnrichmentState]):
         Checks confidence score and completeness of the contacts.
         If threshold fails, builds Target_Gap and calls the Fallback Agent.
         """
-        if self.state.pipeline_mode != "hybrid":
-            return
-            
         if not self.state.llm_output:
             return
 
@@ -298,7 +295,7 @@ class LeadEnrichmentFlow(Flow[EnrichmentState]):
         """Step 8: Build final output and store — pure Python."""
         self.state.final_output = {
             "company_name": self.state.company_name,
-            "pipeline": self.state.pipeline_mode,
+            "pipeline": "hybrid",
             "merged_contacts": self.state.llm_output.get("merged_contacts", []) if self.state.llm_output else [],
             "lead_scores": self.state.llm_output.get("lead_scores", {}) if self.state.llm_output else {},
             "executive_summary": self.state.llm_output.get("executive_summary", "") if self.state.llm_output else "",
