@@ -160,6 +160,9 @@ async def current_user(user: AdminUser = Depends(get_current_user)):
 class ToolConfigUpdate(BaseModel):
     display_name: str | None = None
     agent_name: str | None = None
+    category: str | None = None
+    sequence_number: int | None = None
+    api_key: str | None = None
     is_enabled: bool | None = None
 
 
@@ -175,10 +178,13 @@ async def list_tools(
             "tool_name": t.tool_name,
             "display_name": t.display_name,
             "agent_name": t.agent_name,
+            "category": t.category,
+            "sequence_number": t.sequence_number,
+            "api_key": t.api_key,
             "is_enabled": t.is_enabled,
             "health_status": t.health_status,
             "last_health_check": t.last_health_check.isoformat() if t.last_health_check else None,
-            "env_configured": bool(settings.get_tool_config(t.tool_name).get("api_key")),
+            "env_configured": bool(t.api_key) or bool(settings.get_tool_config(t.tool_name).get("api_key")),
         }
         for t in tools
     ]
@@ -197,6 +203,12 @@ async def update_tool(
         update_data["display_name"] = body.display_name
     if body.agent_name is not None:
         update_data["agent_name"] = body.agent_name
+    if body.category is not None:
+        update_data["category"] = body.category
+    if body.sequence_number is not None:
+        update_data["sequence_number"] = body.sequence_number
+    if body.api_key is not None:
+        update_data["api_key"] = body.api_key
     if body.is_enabled is not None:
         update_data["is_enabled"] = body.is_enabled
     update_data["updated_by"] = user.email

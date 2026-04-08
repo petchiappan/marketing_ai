@@ -16,3 +16,4 @@ class FallbackRecoveryData(BaseModel):
     company_phone_number: Optional[str] = Field(default=None, description="The primary business phone number")
     revenue: Optional[int] = Field(default=None, description="Annual recurring revenue in USD")
     employee_count: Optional[int] = Field(default=None, description="Number of employees")
+    recent_company_news: Optional[list[str]] = Field(default=None, description="Recent important news headlines about the company")

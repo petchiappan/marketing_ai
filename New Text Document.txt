@@ -1,0 +1,5 @@
+docker-compose up -d --build
+docker-compose logs -f app
+docker compose exec app alembic upgrade head
+
+docker run -it -v D:/POC/marketing_ai:/app -p 8000:8000 marketing_ai-app

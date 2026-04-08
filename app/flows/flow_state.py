@@ -22,6 +22,7 @@ class EnrichmentState(BaseModel):
 
     # ── Step 2: API selection (code decides, not LLM) ──
     enabled_tools: list[str] = []
+    enabled_tools_grouped: dict[str, list[str]] = {}
     tool_configs: dict[str, dict[str, str]] = {}
 
     # ── Step 3: Raw API responses ──

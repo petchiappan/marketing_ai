@@ -65,6 +65,7 @@ class Settings(BaseSettings):
         default="", alias="SALESFORCE_SECURITY_TOKEN"
     )
     salesforce_domain: str = Field(default="login", alias="SALESFORCE_DOMAIN")
+    salesforce_webhook_url: str | None = Field(default=None, alias="SALESFORCE_WEBHOOK_URL")
 
     # ── LLM ──
     llm_provider: str = Field(default="openai", alias="LLM_PROVIDER")

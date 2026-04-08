@@ -205,11 +205,29 @@ function agentSelectHtml(selectedValue) {
     ).join('');
 }
 
+const CATEGORY_OPTIONS = [
+    { value: 'contact', label: 'Contact Data' },
+    { value: 'news', label: 'News Search' },
+    { value: 'financial', label: 'Financial Data' },
+    { value: 'fallback', label: 'Fallback Search' },
+];
+
+function categorySelectHtml(selectedValue) {
+    return CATEGORY_OPTIONS.map(o =>
+        `<option value="${o.value}" ${o.value === (selectedValue || 'contact') ? 'selected' : ''}>${o.label}</option>`
+    ).join('');
+}
+
 async function loadTools() {
     try {
         const resp = await fetch('/admin/api/tools');
-        const tools = await resp.json();
+        let tools = await resp.json();
         const grid = document.getElementById('tool-grid');
+        // Group by category visually inside the grid
+        tools.sort((a, b) => {
+            if(a.category !== b.category) return (a.category || '').localeCompare(b.category || '');
+            return (a.sequence_number || 1) - (b.sequence_number || 1);
+        });
         grid.innerHTML = tools.length ? tools.map(renderToolCard).join('') : '<p style="color:var(--text-muted)">No tools configured yet.</p>';
     } catch (err) {
         console.error('Tools load error:', err);
@@ -218,15 +236,16 @@ async function loadTools() {
 
 function renderToolCard(tool) {
     const agentLabel = AGENT_OPTIONS.find(o => o.value === tool.agent_name)?.label || tool.agent_name || '— None —';
+    const catLabel = CATEGORY_OPTIONS.find(o => o.value === tool.category)?.label || tool.category || '—';
     return `
-        <div class="tool-card glass">
+        <div class="tool-card glass" style="${tool.is_enabled ? '' : 'opacity: 0.7;'} border-top: 3px solid var(--accent)">
             <div class="tool-card-header">
                 <h3>${escapeHtml(tool.display_name)}</h3>
                 <span class="badge badge-${tool.health_status}">${tool.health_status}</span>
             </div>
             <div class="tool-card-body">
                 <div><span class="field-label">System Name:</span> ${escapeHtml(tool.tool_name)}</div>
-                <div><span class="field-label">Agent Assignment:</span> ${escapeHtml(agentLabel)}</div>
+                <div><span class="field-label">Category:</span> <span class="badge" style="background:var(--bg-tertiary); color:var(--text-primary)">${escapeHtml(catLabel)} (Seq: ${tool.sequence_number || 1})</span></div>
                 <div><span class="field-label">Env Config:</span> ${tool.env_configured ? '<span style="color:#22c55e">✅ Configured</span>' : '<span style="color:#ef4444">❌ Not set</span>'}</div>
                 <div>
                     <span class="field-label">Status:</span>
@@ -237,7 +256,7 @@ function renderToolCard(tool) {
                 </div>
             </div>
             <div class="tool-card-actions">
-                <button class="btn btn-sm btn-outline" onclick="editTool('${tool.tool_name}')">Configure Mapping</button>
+                <button class="btn btn-sm btn-outline" onclick="editTool('${tool.tool_name}')">Configure</button>
                 <button class="btn btn-sm btn-outline" onclick="healthCheck('${tool.tool_name}')">Health Check</button>
             </div>
         </div>
@@ -247,16 +266,26 @@ function renderToolCard(tool) {
 function addTool() {
     openModal('Add New Tool', `
         <div class="form-group">
-            <label>Tool Name (Pattern: TOOL_{NAME}_API_KEY) <span style="color:#ef4444">*</span></label>
+            <label>Tool Name (System Identifier) <span style="color:#ef4444">*</span></label>
             <input id="add-tool-name" placeholder="e.g. lusha, apollo">
         </div>
         <div class="form-group">
             <label>Display Name</label>
             <input id="add-display-name" placeholder="Tool display name">
         </div>
+        <div class="form-group" style="display:flex; gap:1rem;">
+            <div style="flex:1">
+                <label>Category</label>
+                <select id="add-category">${categorySelectHtml('contact')}</select>
+            </div>
+            <div style="flex:1">
+                <label>Sequence Number</label>
+                <input id="add-sequence" type="number" value="1" min="1">
+            </div>
+        </div>
         <div class="form-group">
-            <label>Agent Mapping</label>
-            <select id="add-agent-name">${agentSelectHtml('')}</select>
+            <label>API Key / Credential</label>
+            <input id="add-api-key" placeholder="Enter API Key from provider">
         </div>
         <div class="form-group">
             <label>Status</label>
@@ -266,7 +295,7 @@ function addTool() {
             </select>
         </div>
         <p class="form-hint" style="font-size:0.8rem;color:var(--text-muted);margin-top:0.5rem">
-            Note: API keys and Base URLs must be configured in the <code>.env</code> file using <code>TOOL_{NAME}_API_KEY</code> pattern.
+            This stores credentials in the DB, overriding the old .env method.
         </p>
     `, async () => {
         const toolName = document.getElementById('add-tool-name').value.trim();
@@ -278,8 +307,12 @@ function addTool() {
         const body = {};
         const displayName = document.getElementById('add-display-name').value.trim();
         body.display_name = displayName || toolName;
-        const agentName = document.getElementById('add-agent-name').value;
-        if (agentName) body.agent_name = agentName;
+        body.category = document.getElementById('add-category').value;
+        body.sequence_number = parseInt(document.getElementById('add-sequence').value) || 1;
+        
+        const apiKey = document.getElementById('add-api-key').value.trim();
+        if (apiKey) body.api_key = apiKey;
+
         body.is_enabled = document.getElementById('add-is-enabled').value === 'true';
 
         try {
@@ -332,14 +365,24 @@ async function editTool(toolName) {
         currentTool = tools.find(t => t.tool_name === toolName) || {};
     } catch (e) { /* ignore, fields will be blank */ }
 
-    openModal('Edit Tool Mapping: ' + toolName, `
+    openModal('Edit Tool: ' + toolName, `
         <div class="form-group">
             <label>Display Name</label>
             <input id="edit-display-name" placeholder="Tool display name" value="${escapeHtml(currentTool.display_name || '')}">
         </div>
+        <div class="form-group" style="display:flex; gap:1rem;">
+            <div style="flex:1">
+                <label>Category</label>
+                <select id="edit-category">${categorySelectHtml(currentTool.category)}</select>
+            </div>
+            <div style="flex:1">
+                <label>Sequence Number</label>
+                <input id="edit-sequence" type="number" value="${currentTool.sequence_number || 1}" min="1">
+            </div>
+        </div>
         <div class="form-group">
-            <label>Agent Mapping</label>
-            <select id="edit-agent-name">${agentSelectHtml(currentTool.agent_name)}</select>
+            <label>API Key / Credential</label>
+            <input id="edit-api-key" placeholder="${currentTool.api_key ? '•••• (Stored in DB. Enter value to update)' : 'Leave blank. DB string empty'}" value="">
         </div>
         <div class="form-group">
             <label>Status</label>
@@ -349,15 +392,19 @@ async function editTool(toolName) {
             </select>
         </div>
         <p class="form-hint" style="font-size:0.8rem;color:var(--text-muted);margin-top:0.5rem">
-            Note: Secrets for this tool are resolved from environment variables: 
-            <code>TOOL_${toolName.toUpperCase()}_API_KEY</code> and <code>TOOL_${toolName.toUpperCase()}_BASE_URL</code>.
+            Tool credentials are now saved in the database.
         </p>
     `, async () => {
         const body = {};
         const name = document.getElementById('edit-display-name').value;
-        const agentName = document.getElementById('edit-agent-name').value;
         if (name) body.display_name = name;
-        body.agent_name = agentName || null;
+        
+        body.category = document.getElementById('edit-category').value;
+        body.sequence_number = parseInt(document.getElementById('edit-sequence').value) || 1;
+        
+        const apiKey = document.getElementById('edit-api-key').value.trim();
+        if (apiKey) body.api_key = apiKey;
+
         body.is_enabled = document.getElementById('edit-is-enabled').value === 'true';
 
         await fetch(`/admin/api/tools/${toolName}`, {
@@ -635,6 +682,12 @@ async function loadWorkflowRuns() {
     let url = '/admin/api/agent-runs?limit=50&pipeline_type=workflow';
     if (statusFilter) url += `&status_filter=${statusFilter}`;
 
+    // Support filtering by request_id (from Job Queue → View Runs)
+    if (window._filterByRequestId) {
+        url += `&request_id=${window._filterByRequestId}`;
+        window._filterByRequestId = null;  // Clear after use
+    }
+
     try {
         const resp = await fetch(url);
         const jobs = await resp.json();
@@ -803,7 +856,11 @@ async function viewTrace(runId) {
             ${run.output_summary ? `
                 <div class="trace-section">
                     <h3>📤 Output Summary</h3>
-                    <div class="trace-code trace-code-full">${formatOutputSummary(run.output_summary)}</div>
+                    ${run.agent_name === 'workflow_pipeline' ? renderWorkflowPipeline(run.output_summary) : ''}
+                    <details ${run.agent_name === 'workflow_pipeline' ? '' : 'open'} style="margin-top: 1rem;">
+                        <summary style="cursor:pointer; font-size: 0.85rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 0.5rem;">Raw JSON Debug Output</summary>
+                        <div class="trace-code trace-code-full">${formatOutputSummary(run.output_summary)}</div>
+                    </details>
                 </div>
             ` : ''}
 
@@ -824,6 +881,74 @@ async function viewTrace(runId) {
     } catch (err) {
         console.error('Trace load error:', err);
     }
+}
+
+function renderWorkflowPipeline(summaryStr) {
+    let data;
+    try {
+        data = JSON.parse(summaryStr);
+    } catch {
+        return '';
+    }
+    
+    // Step 1: API Polling
+    const sources = data.sources_used || [];
+    const fetchErrors = data.fetch_errors || [];
+    const fetchStatus = fetchErrors.length > 0 ? 'failed' : (sources.length > 0 ? 'completed' : 'skipped');
+    const fetchDetail = fetchErrors.length > 0 
+        ? `${fetchErrors.length} errors (${sources.length} sources)`
+        : `${sources.length} underlying APIs used`;
+        
+    // Step 2: Deterministic Normalization
+    const normStatus = 'completed'; // always completes if it reached final_output
+
+    // Step 3: LLM Merging
+    const llmStatus = 'completed'; 
+    const llmDetail = data.executive_summary ? 'Summary & Scoring generated' : 'Merged contacts';
+
+    // Step 4: Hybrid Fallback
+    const fallbackStatus = data.fallback_triggered ? 'completed' : 'skipped';
+    const fallbackDetail = data.fallback_triggered 
+        ? `${Object.keys(data.fallback_recovered_data || {}).length} fields recovered via Agent`
+        : 'Sufficient data found; Agent skipped';
+        
+    // Step 5: Salesforce Webhook
+    const syncStatus = 'completed';
+    const syncDetail = 'Mapped & triggered outbound POST';
+
+    return `
+        <div class="pipeline-stepper">
+            <div class="pipeline-step ${fetchStatus}">
+                <div class="pipeline-step-icon">🔌</div>
+                <div class="pipeline-step-label">API Polling</div>
+                <div class="pipeline-step-detail">${fetchDetail}</div>
+            </div>
+            
+            <div class="pipeline-step ${normStatus}">
+                <div class="pipeline-step-icon">⚙️</div>
+                <div class="pipeline-step-label">Normalization</div>
+                <div class="pipeline-step-detail">Deterministic deduplication</div>
+            </div>
+            
+            <div class="pipeline-step ${llmStatus}">
+                <div class="pipeline-step-icon">🧠</div>
+                <div class="pipeline-step-label">LLM Intelligence</div>
+                <div class="pipeline-step-detail">${llmDetail}</div>
+            </div>
+            
+            <div class="pipeline-step ${fallbackStatus}">
+                <div class="pipeline-step-icon">🤖</div>
+                <div class="pipeline-step-label">Hybrid Fallback</div>
+                <div class="pipeline-step-detail">${fallbackDetail}</div>
+            </div>
+            
+            <div class="pipeline-step ${syncStatus}">
+                <div class="pipeline-step-icon">☁️</div>
+                <div class="pipeline-step-label">Salesforce Sync</div>
+                <div class="pipeline-step-detail">${syncDetail}</div>
+            </div>
+        </div>
+    `;
 }
 
 // ════════════════════════════════════════════════════════════════════════
@@ -1152,6 +1277,10 @@ async function loadJobQueue() {
                 ? `<button class="btn btn-sm btn-outline" onclick="viewJobRuns('${job.id}')">🔍 Traces</button>`
                 : '';
 
+            const enhanceBtn = job.status === 'completed'
+                ? `<button class="btn btn-sm btn-outline" style="margin-left: 0.25rem; color: #8b5cf6; border-color: #c4b5fd;" onclick="promptEnhance('${job.id}')">✨ Enhance</button>`
+                : '';
+
             return `
                 <tr>
                     <td><strong>${escapeHtml(job.company_name)}</strong></td>
@@ -1159,7 +1288,7 @@ async function loadJobQueue() {
                     <td><span class="badge badge-${job.status}">${job.status}</span></td>
                     <td>${job.requested_by ? escapeHtml(job.requested_by) : '—'}</td>
                     <td>${new Date(job.created_at).toLocaleString()}</td>
-                    <td>${runBtn} ${viewBtn}</td>
+                    <td>${runBtn} ${viewBtn} ${enhanceBtn}</td>
                 </tr>
             `;
         }).join('');
@@ -1196,9 +1325,57 @@ async function triggerEnrichment(requestId) {
 
 // Navigate to agent runs filtered by a specific enrichment request
 function viewJobRuns(requestId) {
-    // Store the request ID so loadAgentRuns can use it
+    // Store the request ID so the loader can use it
     window._filterByRequestId = requestId;
-    switchSection('agent-runs');
+    // Route to the appropriate view based on the current active pipeline
+    if (typeof currentPipeline !== 'undefined' && currentPipeline === 'workflow') {
+        switchSection('workflow-runs');
+    } else {
+        switchSection('agent-runs');
+    }
+}
+
+function promptEnhance(requestId) {
+    openModal('✨ Enhance Lead Payload', `
+        <div class="form-group">
+            <label>Additional Instructions (Optional)</label>
+            <textarea id="enhance-instructions" rows="4" class="settings-input" style="width:100%; resize:vertical; padding: 0.5rem;" placeholder="E.g., Rewrite the executive summary focusing only on enterprise sales, or compress the contact list..."></textarea>
+        </div>
+        <p class="form-hint" style="font-size:0.8rem;color:var(--text-muted);margin-top:0.5rem">
+            This will pass the current enriched lead payload back to the LLM with your new instructions.
+        </p>
+    `, async () => {
+        const instructions = document.getElementById('enhance-instructions').value.trim();
+        const btn = document.getElementById('modal-save');
+        const oldText = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = 'Enhancing...';
+
+        try {
+            const resp = await fetch(`/api/enrich/${requestId}/enhance`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ instructions: instructions || null }),
+            });
+
+            if (!resp.ok) {
+                const err = await resp.json().catch(() => ({}));
+                showToast('error', 'Enhancement Failed', err.detail || 'Could not process enhancement.');
+                btn.disabled = false;
+                btn.textContent = oldText;
+                return;
+            }
+
+            closeModal();
+            showToast('success', 'Enhanced', 'Lead data has been successfully enhanced!');
+            loadJobQueue();
+        } catch (err) {
+            console.error('Enhance error:', err);
+            showToast('error', 'Error', 'Failed to connect to the enhancement endpoint.');
+            btn.disabled = false;
+            btn.textContent = oldText;
+        }
+    });
 }
 
 // Filter listener

@@ -20,6 +20,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, relationship
+from pgvector.sqlalchemy import Vector
 
 
 class Base(DeclarativeBase):
@@ -266,6 +267,9 @@ class ToolConfig(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     tool_name = Column(String(50), nullable=False, unique=True)
     display_name = Column(String(100), nullable=False)
+    category = Column(String(50), nullable=True, default="contact")
+    sequence_number = Column(Integer, nullable=False, default=1)
+    api_key = Column(String(500), nullable=True)
     agent_name = Column(String(50), nullable=True)
     is_enabled = Column(Boolean, nullable=False, default=True)
     health_status = Column(String(20), default="unknown")
@@ -477,6 +481,7 @@ class FewShotExample(Base):
     output_response = Column(Text, nullable=False)
     rating = Column(Integer, nullable=False)  # 4 or 5
     source_request_id = Column(UUID(as_uuid=True), ForeignKey("enrichment_requests.id", ondelete="SET NULL"), nullable=True)
+    embedding = Column(Vector(1536), nullable=True)
     is_active = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
 

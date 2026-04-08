@@ -26,6 +26,10 @@ class EnrichmentRequestIn(BaseModel):
     requested_by: str | None = None
 
 
+class EnhancementRequestIn(BaseModel):
+    instructions: str | None = Field(default=None, max_length=1000)
+
+
 class EnrichmentRequestOut(BaseModel):
     id: str
     company_name: str
@@ -142,3 +146,53 @@ async def list_enrichment_requests(
         }
         for r in requests
     ]
+
+
+@router.post("/{request_id}/enhance")
+async def enhance_enriched_lead(
+    request_id: uuid.UUID,
+    body: EnhancementRequestIn,
+    db: AsyncSession = Depends(get_db),
+):
+    """Refine a completed enrichment manually via the Enhance button."""
+    req = await repo.get_request(db, request_id)
+    if not req or req.status != "completed":
+        raise HTTPException(status_code=400, detail="Only completed enrichment requests can be enhanced.")
+        
+    lead = await repo.get_enriched_lead(db, request_id)
+    if not lead or not lead.enrichment_summary:
+        raise HTTPException(status_code=400, detail="No enriched data found to enhance.")
+        
+    try:
+        from app.flows.enhancer import run_enhancement
+        enhanced_payload, token_usage = await run_enhancement(
+            company_name=lead.company_name,
+            original_payload=lead.enrichment_summary,
+            instructions=body.instructions,
+        )
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+        
+    await repo.save_enhancement(
+        db,
+        request_id=request_id,
+        original_output=lead.enrichment_summary,
+        enhanced_output=enhanced_payload,
+        user_instructions=body.instructions,
+        token_usage=token_usage,
+    )
+    
+    await repo.update_enrichment_summary(db, request_id, enhanced_payload)
+    await db.commit()
+    
+    # Optional: trigger Salesforce sync again with enhanced data
+    try:
+        import json
+        from app.services.salesforce_sync import sync_lead_to_salesforce
+        enhanced_json = json.loads(enhanced_payload)
+        await sync_lead_to_salesforce(enhanced_json, req.salesforce_lead_id)
+    except Exception:
+        pass # Not critical to block the whole response
+        
+    return {"status": "success", "message": "Lead data successfully enhanced."}

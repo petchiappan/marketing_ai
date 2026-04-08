@@ -24,9 +24,23 @@ class FewShotManager:
         db: AsyncSession,
         limit: int = 3,
         min_rating: int = 4,
+        query_text: str | None = None,
     ) -> list[dict[str, Any]]:
-        """Get top-rated, most recent few-shot examples."""
-        return await repo.get_few_shot_examples(db, limit=limit, min_rating=min_rating)
+        """Get top-rated, most recent few-shot examples (with optional semantic search)."""
+        query_embedding = None
+        if query_text:
+            from app.infrastructure.vector_store import generate_embedding
+            try:
+                query_embedding = await generate_embedding(query_text)
+            except Exception as e:
+                logger.warning("Failed to generate embedding for few_shot_manager: %s", e)
+                
+        return await repo.get_few_shot_examples(
+            db, 
+            limit=limit, 
+            min_rating=min_rating,
+            query_embedding=query_embedding
+        )
 
     def inject_into_prompt(
         self,

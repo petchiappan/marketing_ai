@@ -174,6 +174,14 @@ class LeadEnrichmentFlow(Flow[EnrichmentState]):
             gap.append("ceo_email")
         if not has_phone:
             gap.append("company_phone_number")
+            
+        news_summary = self.state.llm_output.get("news_summary", [])
+        if not news_summary:
+            gap.append("recent_company_news")
+            
+        financials = self.state.llm_output.get("financials_summary", {})
+        if not financials or not financials.get("revenue"):
+            gap.append("revenue")
         
         # If no gaps or perfectly confident, we skip fallback
         if not gap:
@@ -300,6 +308,8 @@ class LeadEnrichmentFlow(Flow[EnrichmentState]):
             "lead_scores": self.state.llm_output.get("lead_scores", {}) if self.state.llm_output else {},
             "executive_summary": self.state.llm_output.get("executive_summary", "") if self.state.llm_output else "",
             "recommendations": self.state.llm_output.get("recommendations", []) if self.state.llm_output else [],
+            "news_summary": self.state.llm_output.get("news_summary", []) if self.state.llm_output else [],
+            "financials_summary": self.state.llm_output.get("financials_summary", {}) if self.state.llm_output else {},
             "dedup_summary": self.state.llm_output.get("dedup_summary", "") if self.state.llm_output else "",
             "raw_contact_count": sum(r.get("total", 0) for r in self.state.raw_contact_results),
             "raw_news_count": len(self.state.normalized_news),
@@ -323,10 +333,17 @@ class LeadEnrichmentFlow(Flow[EnrichmentState]):
         if self.state.fallback_recovered_data:
             self.state.final_output.update(self.state.fallback_recovered_data)
 
+        # Import sync module
+        from app.services.salesforce_sync import sync_lead_to_salesforce
+
         loop = asyncio.new_event_loop()
         try:
             loop.run_until_complete(self._store_final())
             logger.info("[Workflow] Step 8 — Final output stored for '%s'", self.state.company_name)
+            
+            # Fire the webhook
+            logger.info("[Workflow] Step 8b — Syncing to Salesforce Webhook")
+            loop.run_until_complete(sync_lead_to_salesforce(self.state.final_output, self.state.salesforce_lead_id))
         finally:
             loop.close()
 
@@ -350,6 +367,7 @@ class LeadEnrichmentFlow(Flow[EnrichmentState]):
             all_tools.update(tools)
 
         enabled: list[str] = []
+        enabled_grouped: dict[str, list[str]] = {}
         configs: dict[str, dict[str, str]] = {}
 
         try:
@@ -359,62 +377,81 @@ class LeadEnrichmentFlow(Flow[EnrichmentState]):
                     config = await repo.get_tool_config(db, tool_name)
                     is_enabled_in_db = config.is_enabled if config else True
 
-                    # Fetch secrets from environment
-                    env_config = settings.get_tool_config(tool_name)
-                    api_key = env_config.get("api_key")
-                    base_url = env_config.get("base_url")
+                    # Fetch secrets from DB
+                    api_key = config.api_key if config and config.api_key else None
+                    category = config.category if config and config.category else "contact"
+                    sequence = config.sequence_number if config and config.sequence_number else 1
 
                     # Decide if tool can be used
                     if is_enabled_in_db and api_key:
                         enabled.append(tool_name)
                         configs[tool_name] = {
                             "api_key": api_key,
-                            "base_url": base_url or "",
+                            "sequence": sequence,
                         }
+                        if category not in enabled_grouped:
+                            enabled_grouped[category] = []
+                        enabled_grouped[category].append((sequence, tool_name))
                     else:
-                        reason = "no API key in env" if not api_key else "disabled in admin"
+                        reason = "no API key in DB config" if not api_key else "disabled in admin"
                         logger.info("[Workflow] Skipping tool '%s': %s", tool_name, reason)
+                
+                for cat in enabled_grouped:
+                    enabled_grouped[cat] = [t[1] for t in sorted(enabled_grouped[cat], key=lambda x: x[0])]
+
+                self.state.enabled_tools_grouped = enabled_grouped
         finally:
             await engine.dispose(close=False)
 
         return enabled, configs
 
     async def _fetch_all(self) -> None:
-        """Call all enabled APIs concurrently with asyncio.gather."""
+        """Call allowed APIs sequentially grouped by category using a waterfall approach to save API credits."""
         from app.flows.data_fetchers import FETCHER_MAP
 
-        tasks = []
-        task_names: list[str] = []
-        for name in self.state.enabled_tools:
-            if name in FETCHER_MAP:
-                tasks.append(
-                    FETCHER_MAP[name](
-                        self.state.company_name,
-                        self.state.tool_configs.get(name, {}),
-                    )
-                )
-                task_names.append(name)
-
-        if not tasks:
+        if not self.state.enabled_tools_grouped:
             logger.warning("[Workflow] No APIs enabled — nothing to fetch")
             return
 
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        async def process_category(category: str, tools: list[str]):
+            for name in tools:
+                if name not in FETCHER_MAP:
+                    continue
+                try:
+                    logger.info("[Workflow] Fetching Data (Category: %s | Tool: %s)", category, name)
+                    result = await FETCHER_MAP[name](
+                        self.state.company_name,
+                        self.state.tool_configs.get(name, {}),
+                    )
+                    
+                    if category == "contact":
+                        self.state.raw_contact_results.append(result)
+                        if isinstance(result, dict) and (result.get("emails") or result.get("phone_numbers")):
+                             logger.info("[Workflow] ✅ Stop condition met for %s via %s. Short-circuiting remaining sequence.", category, name)
+                             break
+                    elif category == "news":
+                        self.state.raw_news_results.append(result)
+                        if isinstance(result, list) and len(result) > 0:
+                             logger.info("[Workflow] ✅ Stop condition met for %s via %s", category, name)
+                             break
+                    elif category == "financial":
+                        self.state.raw_financial_results.append(result)
+                        if isinstance(result, dict) and result.get("revenue_range"):
+                             logger.info("[Workflow] ✅ Stop condition met for %s via %s", category, name)
+                             break
+                except Exception as e:
+                    self.state.fetch_errors.append({
+                        "tool": name,
+                        "error": str(e),
+                        "retries": 0,
+                    })
+                    logger.warning("[Workflow] Fetch failed for '%s': %s", name, e)
 
-        for name, result in zip(task_names, results):
-            if isinstance(result, Exception):
-                self.state.fetch_errors.append({
-                    "tool": name,
-                    "error": str(result),
-                    "retries": 0,
-                })
-                logger.warning("[Workflow] Fetch failed for '%s': %s", name, result)
-            elif name in ("lusha", "apollo", "signal_hire"):
-                self.state.raw_contact_results.append(result)
-            elif name == "news_search":
-                self.state.raw_news_results.append(result)
-            elif name == "financial_data":
-                self.state.raw_financial_results.append(result)
+        tasks = []
+        for cat, tools in self.state.enabled_tools_grouped.items():
+            tasks.append(process_category(cat, tools))
+
+        await asyncio.gather(*tasks)
 
     async def _retry_failed(self) -> None:
         """Retry failed API fetches one more time."""
@@ -544,7 +581,6 @@ class LeadEnrichmentFlow(Flow[EnrichmentState]):
                     request_id=req_id,
                     company_name=self.state.company_name,
                     enrichment_summary=json.dumps(self.state.final_output, default=str),
-                    salesforce_lead_id=self.state.salesforce_lead_id,
                 )
 
                 # Update request status to completed

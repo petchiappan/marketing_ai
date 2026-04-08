@@ -14,7 +14,7 @@ import logging
 from typing import Any
 
 from crewai import Agent, Crew, Process, Task
-from langchain_openai import ChatOpenAI
+from crewai import LLM
 
 from app.config.settings import settings
 
@@ -105,6 +105,11 @@ Return a single JSON object with this exact structure:
    }},
    "executive_summary": "...",
    "recommendations": ["...", "..."],
+   "news_summary": ["..."],
+   "financials_summary": {
+       "revenue": 0,
+       "employee_count": 0
+   },
    "dedup_summary": "Merged X duplicates, filled Y missing fields"
 }}"""
 
@@ -123,10 +128,9 @@ def run_intelligence(
     - max_iter=1      → single iteration, no looping
     - allow_delegation=False → cannot hand off work
     """
-    llm = ChatOpenAI(
+    llm = LLM(
         model=settings.llm_model or "gpt-4o-mini",
         temperature=0,
-        model_kwargs={"seed": 42},
     )
 
     prompt = _build_prompt(company_name, contacts, news, financials, few_shot_examples)

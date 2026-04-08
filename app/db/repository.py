@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Sequence
 
 from sqlalchemy import Integer, func, select, update
@@ -62,7 +62,7 @@ async def update_request_status(db: AsyncSession, request_id: uuid.UUID, status:
     await db.execute(
         update(EnrichmentRequest)
         .where(EnrichmentRequest.id == request_id)
-        .values(status=status, updated_at=datetime.utcnow())
+        .values(status=status, updated_at=datetime.now(timezone.utc))
     )
 
 
@@ -176,7 +176,7 @@ async def upsert_tool_config(db: AsyncSession, tool_name: str, **kwargs: Any) ->
     if existing:
         for k, v in kwargs.items():
             setattr(existing, k, v)
-        existing.updated_at = datetime.utcnow()
+        existing.updated_at = datetime.now(timezone.utc)
         await db.flush()
         return existing
     obj = ToolConfig(tool_name=tool_name, **kwargs)
@@ -206,7 +206,7 @@ async def update_rate_limit(db: AsyncSession, provider: str, **kwargs: Any) -> P
         return None
     for k, v in kwargs.items():
         setattr(rl, k, v)
-    rl.updated_at = datetime.utcnow()
+    rl.updated_at = datetime.now(timezone.utc)
     await db.flush()
     return rl
 
@@ -225,7 +225,7 @@ async def log_token_usage(db: AsyncSession, **kwargs: Any) -> LLMTokenUsage:
 async def get_token_usage_summary(
     db: AsyncSession, *, days: int = 30
 ) -> list[dict[str, Any]]:
-    since = datetime.utcnow() - timedelta(days=days)
+    since = datetime.now(timezone.utc) - timedelta(days=days)
     stmt = (
         select(
             LLMTokenUsage.agent_name,
@@ -267,14 +267,14 @@ async def start_agent_run(db: AsyncSession, run_id: uuid.UUID) -> None:
     await db.execute(
         update(AgentRun)
         .where(AgentRun.id == run_id)
-        .values(status="running", started_at=datetime.utcnow())
+        .values(status="running", started_at=datetime.now(timezone.utc))
     )
 
 
 async def complete_agent_run(
     db: AsyncSession, run_id: uuid.UUID, output_summary: str | None = None
 ) -> None:
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     run = await db.get(AgentRun, run_id)
     if run:
         duration = int((now - run.started_at).total_seconds() * 1000) if run.started_at else None
@@ -297,7 +297,7 @@ async def fail_agent_run(
     error_message: str,
     error_traceback: str | None = None,
 ) -> None:
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     run = await db.get(AgentRun, run_id)
     if run:
         duration = int((now - run.started_at).total_seconds() * 1000) if run.started_at else None
@@ -428,7 +428,7 @@ async def update_user_login(db: AsyncSession, user_id: uuid.UUID) -> None:
     await db.execute(
         update(AdminUser)
         .where(AdminUser.id == user_id)
-        .values(last_login_at=datetime.utcnow())
+        .values(last_login_at=datetime.now(timezone.utc))
     )
 
 
@@ -443,7 +443,7 @@ async def get_cached_response(
     stmt = (
         select(LLMResponseCache)
         .where(LLMResponseCache.cache_key == cache_key)
-        .where(LLMResponseCache.expires_at > datetime.utcnow())
+        .where(LLMResponseCache.expires_at > datetime.now(timezone.utc))
     )
     result = await db.execute(stmt)
     return result.scalar_one_or_none()
@@ -478,7 +478,7 @@ async def increment_cache_hit(db: AsyncSession, cache_key: str) -> None:
         .where(LLMResponseCache.cache_key == cache_key)
         .values(
             hit_count=LLMResponseCache.hit_count + 1,
-            last_hit_at=datetime.utcnow(),
+            last_hit_at=datetime.now(timezone.utc),
         )
     )
 
@@ -488,7 +488,7 @@ async def get_cache_stats(db: AsyncSession) -> dict[str, Any]:
     total = (await db.execute(select(func.count(LLMResponseCache.id)))).scalar() or 0
     active = (await db.execute(
         select(func.count(LLMResponseCache.id))
-        .where(LLMResponseCache.expires_at > datetime.utcnow())
+        .where(LLMResponseCache.expires_at > datetime.now(timezone.utc))
     )).scalar() or 0
     total_hits = (await db.execute(
         select(func.coalesce(func.sum(LLMResponseCache.hit_count), 0))
@@ -534,7 +534,7 @@ async def get_evaluation_summary(
     db: AsyncSession, *, days: int = 30
 ) -> dict[str, Any]:
     """Aggregate evaluation metrics for admin dashboard KPIs."""
-    since = datetime.utcnow() - timedelta(days=days)
+    since = datetime.now(timezone.utc) - timedelta(days=days)
 
     total = (await db.execute(
         select(func.count(ResponseEvaluation.id)).where(ResponseEvaluation.created_at >= since)
@@ -652,7 +652,7 @@ async def upsert_system_setting(
         if description is not None:
             existing.description = description
         existing.updated_by = updated_by
-        existing.updated_at = datetime.utcnow()
+        existing.updated_at = datetime.now(timezone.utc)
         await db.flush()
         return existing
     obj = SystemSetting(key=key, value=value, description=description, updated_by=updated_by)
@@ -705,6 +705,7 @@ async def promote_to_few_shot(
     company_name: str,
     output_response: str,
     rating: int,
+    embedding: list[float] | None = None,
 ) -> FewShotExample:
     """Promote a high-rated output to the few-shot prompt bank."""
     obj = FewShotExample(
@@ -712,6 +713,7 @@ async def promote_to_few_shot(
         output_response=output_response,
         rating=rating,
         source_request_id=request_id,
+        embedding=embedding,
     )
     db.add(obj)
     await db.flush()
@@ -723,15 +725,21 @@ async def get_few_shot_examples(
     *,
     limit: int = 3,
     min_rating: int = 4,
+    query_embedding: list[float] | None = None,
 ) -> list[dict[str, Any]]:
-    """Get active few-shot examples ordered by rating desc, most recent first."""
+    """Get active few-shot examples ordered by rating desc, most recent first, or by vector similarity."""
     stmt = (
         select(FewShotExample)
         .where(FewShotExample.is_active.is_(True))
         .where(FewShotExample.rating >= min_rating)
-        .order_by(FewShotExample.rating.desc(), FewShotExample.created_at.desc())
-        .limit(limit)
     )
+    
+    if query_embedding is not None:
+        stmt = stmt.order_by(FewShotExample.embedding.cosine_distance(query_embedding))
+    else:
+        stmt = stmt.order_by(FewShotExample.rating.desc(), FewShotExample.created_at.desc())
+        
+    stmt = stmt.limit(limit)
     result = await db.execute(stmt)
     examples = result.scalars().all()
     return [
@@ -781,5 +789,5 @@ async def update_enrichment_summary(
     await db.execute(
         update(EnrichedLead)
         .where(EnrichedLead.request_id == request_id)
-        .values(enrichment_summary=new_summary, updated_at=datetime.utcnow())
+        .values(enrichment_summary=new_summary, updated_at=datetime.now(timezone.utc))
     )
