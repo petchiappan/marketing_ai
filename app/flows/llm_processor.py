@@ -106,10 +106,10 @@ Return a single JSON object with this exact structure:
    "executive_summary": "...",
    "recommendations": ["...", "..."],
    "news_summary": ["..."],
-   "financials_summary": {
+   "financials_summary": {{
        "revenue": 0,
        "employee_count": 0
-   },
+   }},
    "dedup_summary": "Merged X duplicates, filled Y missing fields"
 }}"""
 
