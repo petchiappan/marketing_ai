@@ -857,6 +857,8 @@ async function viewTrace(runId) {
                 <div class="trace-section">
                     <h3>📤 Output Summary</h3>
                     ${run.agent_name === 'workflow_pipeline' ? renderWorkflowPipeline(run.output_summary) : ''}
+                    ${run.agent_name === 'workflow_pipeline' ? renderActivityLog(run.output_summary) : ''}
+                    ${run.agent_name === 'workflow_pipeline' ? renderLlmDebug(run.output_summary) : ''}
                     <details ${run.agent_name === 'workflow_pipeline' ? '' : 'open'} style="margin-top: 1rem;">
                         <summary style="cursor:pointer; font-size: 0.85rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 0.5rem;">Raw JSON Debug Output</summary>
                         <div class="trace-code trace-code-full">${formatOutputSummary(run.output_summary)}</div>
@@ -908,8 +910,10 @@ function renderWorkflowPipeline(summaryStr) {
 
     // Step 4: Hybrid Fallback
     const fallbackStatus = data.fallback_triggered ? 'completed' : 'skipped';
+    const enrichSources = data.enrichment_source || {};
+    const isLlmOnlyFallback = Object.values(enrichSources).some(v => v === 'LLM_Only_Fallback');
     const fallbackDetail = data.fallback_triggered 
-        ? `${Object.keys(data.fallback_recovered_data || {}).length} fields recovered via Agent`
+        ? `${Object.keys(data.fallback_recovered_data || {}).length} fields recovered via ${isLlmOnlyFallback ? 'LLM (no tools)' : 'Agent'}`
         : 'Sufficient data found; Agent skipped';
         
     // Step 5: Salesforce Webhook
@@ -949,6 +953,165 @@ function renderWorkflowPipeline(summaryStr) {
             </div>
         </div>
     `;
+}
+
+function renderActivityLog(summaryStr) {
+    let data;
+    try {
+        data = JSON.parse(summaryStr);
+    } catch {
+        return '';
+    }
+
+    const logs = data.activity_log || [];
+    if (!logs.length) {
+        return '';
+    }
+
+    const logText = logs.join('\n');
+
+    return `
+        <div class="activity-log-section" style="margin-top: 1.25rem;">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem;">
+                <h3 style="margin: 0; font-size: 0.95rem; font-weight: 600; color: var(--text-primary);">
+                    📋 Activity Log <span style="font-weight: 400; color: var(--text-muted); font-size: 0.8rem;">(${logs.length} entries)</span>
+                </h3>
+                <button class="btn btn-sm btn-outline" onclick="copyActivityLog(this)" style="font-size: 0.75rem; padding: 0.25rem 0.5rem;">
+                    📋 Copy Log
+                </button>
+            </div>
+            <textarea
+                readonly
+                style="
+                    width: 100%;
+                    min-height: 200px;
+                    max-height: 400px;
+                    padding: 0.75rem;
+                    font-family: var(--font-mono, 'Fira Code', 'Cascadia Code', Consolas, monospace);
+                    font-size: 0.78rem;
+                    line-height: 1.6;
+                    background: #0f1729;
+                    color: #a8d8a8;
+                    border: 1px solid rgba(37, 99, 235, 0.15);
+                    border-radius: 8px;
+                    resize: vertical;
+                    white-space: pre;
+                    overflow-x: auto;
+                "
+            >${escapeHtml(logText)}</textarea>
+        </div>
+    `;
+}
+
+function copyActivityLog(btn) {
+    const textarea = btn.closest('.activity-log-section').querySelector('textarea');
+    if (textarea) {
+        navigator.clipboard.writeText(textarea.value).then(() => {
+            const original = btn.innerHTML;
+            btn.innerHTML = '✅ Copied!';
+            setTimeout(() => { btn.innerHTML = original; }, 1500);
+        });
+    }
+}
+
+function renderLlmDebug(summaryStr) {
+    let data;
+    try {
+        data = JSON.parse(summaryStr);
+    } catch {
+        return '';
+    }
+
+    const debug = data.llm_debug || {};
+    if (!debug.step7_prompt && !debug.step7_raw_output && !debug.fallback_prompt) {
+        return '';
+    }
+
+    const textareaStyle = `
+        width: 100%;
+        min-height: 180px;
+        max-height: 500px;
+        padding: 0.75rem;
+        font-family: var(--font-mono, 'Fira Code', 'Cascadia Code', Consolas, monospace);
+        font-size: 0.78rem;
+        line-height: 1.5;
+        border: 1px solid rgba(37, 99, 235, 0.15);
+        border-radius: 8px;
+        resize: vertical;
+        white-space: pre-wrap;
+        word-wrap: break-word;
+    `;
+
+    const inputStyle = textareaStyle + 'background: #0d1b2a; color: #7ec8e3;';
+    const outputStyle = textareaStyle + 'background: #0f1729; color: #a8d8a8;';
+
+    let html = '<div style="margin-top: 1.25rem;">';
+    html += '<h3 style="font-size: 0.95rem; font-weight: 600; color: var(--text-primary); margin-bottom: 0.75rem;">🔬 LLM Debug I/O</h3>';
+
+    // Step 7: LLM Intelligence
+    if (debug.step7_prompt || debug.step7_raw_output) {
+        html += `
+            <details style="margin-bottom: 0.75rem; border: 1px solid rgba(37,99,235,0.1); border-radius: 8px; overflow: hidden;">
+                <summary style="cursor:pointer; padding: 0.6rem 0.75rem; font-size: 0.85rem; font-weight: 600; color: var(--text-secondary); background: rgba(37,99,235,0.03);">
+                    🧠 Step 7 — LLM Intelligence I/O
+                </summary>
+                <div style="padding: 0.75rem;">
+                    ${debug.step7_prompt ? `
+                        <div style="margin-bottom: 0.75rem;">
+                            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:0.35rem;">
+                                <span style="font-size:0.8rem; font-weight:600; color:#7ec8e3;">📥 Input Prompt</span>
+                                <span style="font-size:0.7rem; color:var(--text-muted);">${debug.step7_prompt.length.toLocaleString()} chars</span>
+                            </div>
+                            <textarea readonly style="${inputStyle}">${escapeHtml(debug.step7_prompt)}</textarea>
+                        </div>
+                    ` : ''}
+                    ${debug.step7_raw_output ? `
+                        <div>
+                            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:0.35rem;">
+                                <span style="font-size:0.8rem; font-weight:600; color:#a8d8a8;">📤 Raw LLM Output</span>
+                                <span style="font-size:0.7rem; color:var(--text-muted);">${debug.step7_raw_output.length.toLocaleString()} chars</span>
+                            </div>
+                            <textarea readonly style="${outputStyle}">${escapeHtml(debug.step7_raw_output)}</textarea>
+                        </div>
+                    ` : ''}
+                </div>
+            </details>
+        `;
+    }
+
+    // Step 7b: Fallback
+    if (debug.fallback_prompt || debug.fallback_raw_output) {
+        html += `
+            <details style="margin-bottom: 0.75rem; border: 1px solid rgba(37,99,235,0.1); border-radius: 8px; overflow: hidden;">
+                <summary style="cursor:pointer; padding: 0.6rem 0.75rem; font-size: 0.85rem; font-weight: 600; color: var(--text-secondary); background: rgba(37,99,235,0.03);">
+                    🤖 Step 7b — Fallback Agent I/O
+                </summary>
+                <div style="padding: 0.75rem;">
+                    ${debug.fallback_prompt ? `
+                        <div style="margin-bottom: 0.75rem;">
+                            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:0.35rem;">
+                                <span style="font-size:0.8rem; font-weight:600; color:#7ec8e3;">📥 Input Prompt</span>
+                                <span style="font-size:0.7rem; color:var(--text-muted);">${debug.fallback_prompt.length.toLocaleString()} chars</span>
+                            </div>
+                            <textarea readonly style="${inputStyle}">${escapeHtml(debug.fallback_prompt)}</textarea>
+                        </div>
+                    ` : ''}
+                    ${debug.fallback_raw_output ? `
+                        <div>
+                            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:0.35rem;">
+                                <span style="font-size:0.8rem; font-weight:600; color:#a8d8a8;">📤 Raw LLM Output</span>
+                                <span style="font-size:0.7rem; color:var(--text-muted);">${debug.fallback_raw_output.length.toLocaleString()} chars</span>
+                            </div>
+                            <textarea readonly style="${outputStyle}">${escapeHtml(debug.fallback_raw_output)}</textarea>
+                        </div>
+                    ` : ''}
+                </div>
+            </details>
+        `;
+    }
+
+    html += '</div>';
+    return html;
 }
 
 // ════════════════════════════════════════════════════════════════════════

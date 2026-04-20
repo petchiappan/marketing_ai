@@ -49,3 +49,6 @@ class EnrichmentState(BaseModel):
 
     # ── Few-shot examples from feedback loop ──
     few_shot_examples: list[dict[str, Any]] = []
+
+    # ── Activity Log (for admin debugging) ──
+    activity_log: list[str] = []

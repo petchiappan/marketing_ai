@@ -174,9 +174,16 @@ def run_intelligence(
     result_str = str(result)
     logger.info("[LLM Intelligence] Completed for '%s' — output length: %d", company_name, len(result_str))
 
+    # Always attach the raw prompt and output for debugging
+    debug_meta = {
+        "_llm_prompt": prompt,
+        "_llm_raw_output": result_str,
+    }
+
     try:
         # Try to parse as JSON
         parsed = json.loads(result_str)
+        parsed.update(debug_meta)
         return parsed
     except json.JSONDecodeError:
         # Try to extract JSON from markdown code blocks
@@ -184,8 +191,10 @@ def run_intelligence(
         json_match = re.search(r"```(?:json)?\s*\n(.*?)```", result_str, re.DOTALL)
         if json_match:
             try:
-                return json.loads(json_match.group(1))
+                parsed = json.loads(json_match.group(1))
+                parsed.update(debug_meta)
+                return parsed
             except json.JSONDecodeError:
                 pass
         logger.warning("[LLM Intelligence] Could not parse LLM output as JSON")
-        return {"raw_output": result_str, "parse_error": True}
+        return {"raw_output": result_str, "parse_error": True, **debug_meta}

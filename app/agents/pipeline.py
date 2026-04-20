@@ -153,7 +153,7 @@ async def _run_workflow_pipeline(request_id: uuid.UUID) -> None:
         async with session_factory() as db:
             output_summary = "Workflow completed successfully"
             if flow.state.final_output:
-                output_summary = json.dumps(flow.state.final_output, default=str)[:10000]
+                output_summary = json.dumps(flow.state.final_output, default=str)[:100000]
             await repo.complete_agent_run(db, agent_run.id, output_summary)
             await db.commit()
 

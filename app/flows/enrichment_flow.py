@@ -29,6 +29,14 @@ class LeadEnrichmentFlow(Flow[EnrichmentState]):
     Step 8 stores the final output.
     """
 
+    def _log(self, message: str):
+        """Append a timestamped log entry to activity_log and also emit to Python logger."""
+        from datetime import datetime
+        ts = datetime.now().strftime("%H:%M:%S")
+        entry = f"[{ts}] {message}"
+        self.state.activity_log.append(entry)
+        logger.info(message)
+
     # ── Step 1: Validate ─────────────────────────────────────────────────
 
     @start()
@@ -36,7 +44,7 @@ class LeadEnrichmentFlow(Flow[EnrichmentState]):
         """Step 1: Validate input — pure Python."""
         if not self.state.company_name:
             raise ValueError("company_name is required")
-        logger.info("[Workflow] Step 1 — Validated input for: %s", self.state.company_name)
+        self._log("[Workflow] Step 1 — Validated input for: %s" % self.state.company_name)
 
     # ── Step 2: Select APIs ──────────────────────────────────────────────
 
@@ -52,7 +60,10 @@ class LeadEnrichmentFlow(Flow[EnrichmentState]):
             enabled, configs = loop.run_until_complete(self._load_tool_configs())
             self.state.enabled_tools = enabled
             self.state.tool_configs = configs
-            logger.info("[Workflow] Step 2 — Selected APIs: %s", enabled)
+            if enabled:
+                self._log("[Workflow] Step 2 — Selected APIs: %s" % enabled)
+            else:
+                self._log("[Workflow] Step 2 — ⚠ No APIs enabled/configured. Will rely on LLM + Fallback.")
         finally:
             loop.close()
 
@@ -64,11 +75,9 @@ class LeadEnrichmentFlow(Flow[EnrichmentState]):
         loop = asyncio.new_event_loop()
         try:
             loop.run_until_complete(self._fetch_all())
-            logger.info(
-                "[Workflow] Step 3 — Fetched: %d contact sources, %d news sources, %d financial sources",
-                len(self.state.raw_contact_results),
-                len(self.state.raw_news_results),
-                len(self.state.raw_financial_results),
+            self._log(
+                "[Workflow] Step 3 — Fetched: %d contact sources, %d news sources, %d financial sources"
+                % (len(self.state.raw_contact_results), len(self.state.raw_news_results), len(self.state.raw_financial_results))
             )
         finally:
             loop.close()
@@ -82,12 +91,12 @@ class LeadEnrichmentFlow(Flow[EnrichmentState]):
         try:
             loop.run_until_complete(self._retry_failed())
             if self.state.fetch_errors:
-                logger.warning(
-                    "[Workflow] Step 4 — Still failed after retries: %s",
-                    [e["tool"] for e in self.state.fetch_errors],
+                self._log(
+                    "[Workflow] Step 4 — ⚠ Still failed after retries: %s"
+                    % [e["tool"] for e in self.state.fetch_errors]
                 )
             else:
-                logger.info("[Workflow] Step 4 — All fetches OK")
+                self._log("[Workflow] Step 4 — All fetches OK")
         finally:
             loop.close()
 
@@ -102,10 +111,9 @@ class LeadEnrichmentFlow(Flow[EnrichmentState]):
         self._normalize_contacts()
         self._normalize_news()
         self._normalize_financials()
-        logger.info(
-            "[Workflow] Step 5 — Normalized: %d contacts, %d news articles",
-            len(self.state.normalized_contacts),
-            len(self.state.normalized_news),
+        self._log(
+            "[Workflow] Step 5 — Normalized: %d contacts, %d news articles"
+            % (len(self.state.normalized_contacts), len(self.state.normalized_news))
         )
 
     # ── Step 6: Store Raw Results ────────────────────────────────────────
@@ -116,7 +124,7 @@ class LeadEnrichmentFlow(Flow[EnrichmentState]):
         loop = asyncio.new_event_loop()
         try:
             loop.run_until_complete(self._store_raw())
-            logger.info("[Workflow] Step 6 — Stored raw results")
+            self._log("[Workflow] Step 6 — Stored raw results")
         finally:
             loop.close()
 
@@ -131,7 +139,7 @@ class LeadEnrichmentFlow(Flow[EnrichmentState]):
         """
         from app.flows.llm_processor import run_intelligence
 
-        logger.info("[Workflow] Step 7 — Starting single LLM call for '%s'", self.state.company_name)
+        self._log("[Workflow] Step 7 — Starting single LLM call for '%s'" % self.state.company_name)
         self.state.llm_output = run_intelligence(
             company_name=self.state.company_name,
             contacts=self.state.normalized_contacts,
@@ -139,7 +147,7 @@ class LeadEnrichmentFlow(Flow[EnrichmentState]):
             financials=self.state.normalized_financials,
             few_shot_examples=self.state.few_shot_examples,
         )
-        logger.info("[Workflow] Step 7 — LLM call completed")
+        self._log("[Workflow] Step 7 — LLM call completed. Parse error: %s" % self.state.llm_output.get("parse_error", False) if self.state.llm_output else "No output")
 
     # ── Step 7b: Hybrid Escalation Trigger ───────────────────────────────
 
@@ -149,54 +157,72 @@ class LeadEnrichmentFlow(Flow[EnrichmentState]):
 
         Checks confidence score and completeness of the contacts.
         If threshold fails, builds Target_Gap and calls the Fallback Agent.
+        ALSO force-triggers when no APIs were used (LLM data is hallucinated).
         """
         if not self.state.llm_output:
+            self._log("[Workflow] Step 7b — No LLM output. Skipping fallback.")
             return
+
+        # ── Force-trigger when NO APIs were used ──
+        # If enabled_tools is empty, the LLM received empty data and
+        # hallucinated everything. We MUST go to fallback for real data.
+        no_real_data = not self.state.enabled_tools
+        if no_real_data:
+            self._log("[Workflow] Step 7b — ⚠ No APIs were enabled. LLM output is based on empty data (likely hallucinated). Forcing fallback.")
 
         scores = self.state.llm_output.get("lead_scores", {})
         confidence = float(scores.get("confidence_score", 1.0))
         contacts = self.state.llm_output.get("merged_contacts", [])
 
+        self._log("[Workflow] Step 7b — Evaluating: confidence=%.2f, contacts=%d" % (confidence, len(contacts)))
+
         # Logic for determining gap
         gap = []
-        if confidence <= 0.70:
-            gap.append("overall_confidence_improvement")
-        
-        has_ceo_email = False
-        has_phone = False
-        for c in contacts:
-            if "ceo" in str(c.get("title", "")).lower() and c.get("email"):
-                has_ceo_email = True
-            if c.get("phone"):
-                has_phone = True
 
-        if not has_ceo_email:
-            gap.append("ceo_email")
-        if not has_phone:
-            gap.append("company_phone_number")
+        if no_real_data:
+            # Force all gaps when no APIs were used
+            gap.extend(["ceo_email", "company_phone_number", "recent_company_news", "revenue", "overall_confidence_improvement"])
+            self._log("[Workflow] Step 7b — Forced full gap list (no APIs): %s" % gap)
+        else:
+            if confidence <= 0.70:
+                gap.append("overall_confidence_improvement")
             
-        news_summary = self.state.llm_output.get("news_summary", [])
-        if not news_summary:
-            gap.append("recent_company_news")
-            
-        financials = self.state.llm_output.get("financials_summary", {})
-        if not financials or not financials.get("revenue"):
-            gap.append("revenue")
+            has_ceo_email = False
+            has_phone = False
+            for c in contacts:
+                if "ceo" in str(c.get("title", "")).lower() and c.get("email"):
+                    has_ceo_email = True
+                if c.get("phone"):
+                    has_phone = True
+
+            if not has_ceo_email:
+                gap.append("ceo_email")
+            if not has_phone:
+                gap.append("company_phone_number")
+                
+            news_summary = self.state.llm_output.get("news_summary", [])
+            if not news_summary:
+                gap.append("recent_company_news")
+                
+            financials = self.state.llm_output.get("financials_summary", {})
+            if not financials or not financials.get("revenue"):
+                gap.append("revenue")
         
-        # If no gaps or perfectly confident, we skip fallback
+        # If no gaps, we skip fallback
         if not gap:
+            self._log("[Workflow] Step 7b — No gaps detected. Fallback skipped.")
             return
 
         self.state.target_gap = gap
         self.state.fallback_triggered = True
 
-        logger.info("[Workflow] Step 7b — Hybrid trigger activated. Target_Gap: %s", gap)
+        self._log("[Workflow] Step 7b — Hybrid trigger activated. Target_Gap: %s" % gap)
 
         loop = asyncio.new_event_loop()
         try:
             loop.run_until_complete(self._run_hybrid_fallback(gap))
         except Exception as e:
-            logger.warning("[Workflow] Step 7b — Fallback execution failed completely: %s", e)
+            self._log("[Workflow] Step 7b — ⚠ Fallback execution failed completely: %s" % e)
         finally:
             loop.close()
 
@@ -207,8 +233,9 @@ class LeadEnrichmentFlow(Flow[EnrichmentState]):
         
         try:
             r = aioredis.from_url(settings.redis_url)
+            self._log("[Workflow] Step 7b — Connected to Redis for caching")
         except Exception as e:
-            logger.warning("Failed to connect to Redis for fallback caching: %s", e)
+            self._log("[Workflow] Step 7b — Redis unavailable: %s" % e)
             r = None
             
         # 1. CIRCUIT BREAKER (Feature 5)
@@ -216,7 +243,7 @@ class LeadEnrichmentFlow(Flow[EnrichmentState]):
             try:
                 failures = int(await r.get("web_search_failures") or 0)
                 if failures >= 5:
-                    logger.warning("[Circuit Breaker] OPEN. >= 5 web failures. Skipping agent fallback.")
+                    self._log("[Workflow] Step 7b — ⚠ Circuit Breaker OPEN (>= 5 web failures). Skipping fallback.")
                     return
             except Exception as e:
                 logger.debug("Redis circuit breaker check failed: %s", e)
@@ -238,13 +265,13 @@ class LeadEnrichmentFlow(Flow[EnrichmentState]):
             actual_gap = gap
             
         if not actual_gap:
-            logger.info("All gap elements recovered from Redis cache!")
+            self._log("[Workflow] Step 7b — All gap elements recovered from Redis cache!")
             self.state.fallback_recovered_data = cache_hits
             for k in cache_hits:
                 self.state.enrichment_source[k] = "Redis_Cache"
             return
             
-        from app.agents.fallback_agent import run_fallback
+        from app.agents.fallback_agent import run_fallback, run_llm_only_fallback
         from app.tools.registry import get_agent_tool_assignments, resolve_tools
         import concurrent.futures
 
@@ -254,26 +281,48 @@ class LeadEnrichmentFlow(Flow[EnrichmentState]):
 
         fallback_result = {}
         loop = asyncio.get_running_loop()
-        
-        # 3. ASYNCIO TIMEOUTS (Feature 2)
-        try:
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                fallback_result = await asyncio.wait_for(
-                    loop.run_in_executor(
-                        pool,
-                        lambda: run_fallback(
-                            company_name=self.state.company_name,
-                            partial_data=self.state.llm_output or {},
-                            target_gap=actual_gap,
-                            tools=fallback_tools,
-                        )
-                    ),
-                    timeout=30.0  # 30 second strict timeout
-                )
-        except asyncio.TimeoutError:
-            logger.warning("[Fallback Timeout] Agent exceeded 30s. Gracefully aborting & retaining cache.")
-        except Exception as e:
-            logger.error("[Fallback Error] %s", e)
+
+        if not fallback_tools:
+            # ── NO TOOLS ATTACHED → Pure LLM Fallback ──
+            self._log("[Workflow] Step 7b — No fallback tools resolved. Routing to LLM-only fallback agent.")
+            try:
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                    fallback_result = await asyncio.wait_for(
+                        loop.run_in_executor(
+                            pool,
+                            lambda: run_llm_only_fallback(
+                                company_name=self.state.company_name,
+                                partial_data=self.state.llm_output or {},
+                                target_gap=actual_gap,
+                            )
+                        ),
+                        timeout=30.0
+                    )
+            except asyncio.TimeoutError:
+                self._log("[Workflow] Step 7b — ⚠ LLM-only fallback exceeded 30s timeout.")
+            except Exception as e:
+                self._log("[Workflow] Step 7b — ⚠ LLM-Only Fallback Error: %s" % e)
+        else:
+            # ── TOOLS AVAILABLE → Agent-based Fallback ──
+            self._log("[Workflow] Step 7b — Running agent-based fallback with tools: %s" % fallback_tool_names)
+            try:
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                    fallback_result = await asyncio.wait_for(
+                        loop.run_in_executor(
+                            pool,
+                            lambda: run_fallback(
+                                company_name=self.state.company_name,
+                                partial_data=self.state.llm_output or {},
+                                target_gap=actual_gap,
+                                tools=fallback_tools,
+                            )
+                        ),
+                        timeout=30.0  # 30 second strict timeout
+                    )
+            except asyncio.TimeoutError:
+                self._log("[Workflow] Step 7b — ⚠ Agent fallback exceeded 30s timeout.")
+            except Exception as e:
+                self._log("[Workflow] Step 7b — ⚠ Agent Fallback Error: %s" % e)
             
         recovered = fallback_result.get("recovered_data", {})
         
@@ -281,8 +330,9 @@ class LeadEnrichmentFlow(Flow[EnrichmentState]):
         recovered.update(cache_hits)
         
         # Add to source lineage
+        fallback_source_label = "LLM_Only_Fallback" if not fallback_tools else "Agent_Fallback_Search"
         for k in recovered.keys():
-            self.state.enrichment_source[k] = "Agent_Fallback_Search" if k not in cache_hits else "Redis_Cache"
+            self.state.enrichment_source[k] = fallback_source_label if k not in cache_hits else "Redis_Cache"
         
         # Update cache for newly discovered items
         if r:
@@ -294,13 +344,25 @@ class LeadEnrichmentFlow(Flow[EnrichmentState]):
                         pass
                         
         self.state.fallback_recovered_data = recovered
-        logger.info("[Workflow] Step 7b — Fallback complete. Recovered: %s", recovered)
+        # Store fallback LLM I/O for debug
+        self.state.additional_context["_fallback_prompt"] = fallback_result.get("_fallback_prompt", "")
+        self.state.additional_context["_fallback_raw_output"] = fallback_result.get("_fallback_raw_output", fallback_result.get("raw_markdown", ""))
+        self._log("[Workflow] Step 7b — Fallback complete. Recovered %d fields: %s" % (len(recovered), list(recovered.keys())))
 
     # ── Step 8: Finalize & Store ─────────────────────────────────────────
 
     @listen(hybrid_trigger)
     def finalize_and_store(self):
         """Step 8: Build final output and store — pure Python."""
+        # Gather LLM debug I/O
+        llm_debug = {}
+        if self.state.llm_output:
+            llm_debug["step7_prompt"] = self.state.llm_output.get("_llm_prompt", "")
+            llm_debug["step7_raw_output"] = self.state.llm_output.get("_llm_raw_output", "")
+        if self.state.fallback_triggered:
+            llm_debug["fallback_prompt"] = self.state.additional_context.get("_fallback_prompt", "")
+            llm_debug["fallback_raw_output"] = self.state.additional_context.get("_fallback_raw_output", "")
+
         self.state.final_output = {
             "company_name": self.state.company_name,
             "pipeline": "hybrid",
@@ -318,6 +380,8 @@ class LeadEnrichmentFlow(Flow[EnrichmentState]):
             "fallback_triggered": self.state.fallback_triggered,
             "fallback_recovered_data": self.state.fallback_recovered_data,
             "enrichment_source": self.state.enrichment_source,
+            "activity_log": self.state.activity_log,
+            "llm_debug": llm_debug,
         }
 
         # Setup standard deterministic sources (Feature 4)
@@ -339,11 +403,12 @@ class LeadEnrichmentFlow(Flow[EnrichmentState]):
         loop = asyncio.new_event_loop()
         try:
             loop.run_until_complete(self._store_final())
-            logger.info("[Workflow] Step 8 — Final output stored for '%s'", self.state.company_name)
+            self._log("[Workflow] Step 8 — Final output stored for '%s'" % self.state.company_name)
             
             # Fire the webhook
-            logger.info("[Workflow] Step 8b — Syncing to Salesforce Webhook")
+            self._log("[Workflow] Step 8b — Syncing to Salesforce Webhook")
             loop.run_until_complete(sync_lead_to_salesforce(self.state.final_output, self.state.salesforce_lead_id))
+            self._log("[Workflow] ✅ Pipeline complete for '%s'" % self.state.company_name)
         finally:
             loop.close()
 

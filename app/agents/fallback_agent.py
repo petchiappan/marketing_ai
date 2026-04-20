@@ -100,5 +100,72 @@ INPUT:
 
     return {
         "raw_markdown": raw_markdown,
-        "recovered_data": recovered_dict
+        "recovered_data": recovered_dict,
+        "_fallback_prompt": prompt,
+        "_fallback_raw_output": raw_markdown,
     }
+
+
+def run_llm_only_fallback(company_name: str, partial_data: dict[str, Any], target_gap: list[str]) -> dict[str, Any]:
+    """Pure LLM fallback — no tools attached, uses LLM knowledge to fill gaps.
+
+    This is invoked when no external search tools are enabled in the system.
+    The LLM uses its training knowledge to provide best-effort data.
+    """
+    import logging
+    from langchain_openai import ChatOpenAI
+    from app.schemas.fallback_model import FallbackRecoveryData
+
+    logger = logging.getLogger(__name__)
+    logger.info("[LLM-Only Fallback] No tools available. Using pure LLM for '%s'. Gaps: %s", company_name, target_gap)
+
+    llm = ChatOpenAI(
+        model=settings.llm_model or "gpt-4o-mini",
+        temperature=0,
+    )
+
+    prompt = f"""You are a Lead Intelligence Analyst. No external search tools are available.
+Use your training knowledge to provide the best possible data for the missing fields.
+
+Company: {company_name}
+
+Partial data already collected:
+```json
+{json.dumps(partial_data, indent=2, default=str)[:6000]}
+```
+
+Missing fields (Target_Gap): {json.dumps(target_gap)}
+
+## INSTRUCTIONS:
+1. Fill ONLY the fields listed in Target_Gap.
+2. Use your knowledge to provide factual, accurate information.
+3. If you are NOT confident about a field, leave it as null — do NOT fabricate data.
+4. Prefer well-known public information (e.g. CEO names of large companies, known revenue ranges).
+
+Provide your best assessment as a detailed markdown report, then I will extract the structured data.
+"""
+
+    try:
+        # Step 1: Generate raw analysis via LLM
+        raw_response = llm.invoke(prompt)
+        raw_markdown = raw_response.content if hasattr(raw_response, 'content') else str(raw_response)
+        logger.info("[LLM-Only Fallback] LLM response length: %d", len(raw_markdown))
+
+        # Step 2: Extract structured data using the same extractor
+        recovered_dict = extract_strict_json(raw_markdown)
+        logger.info("[LLM-Only Fallback] Recovered %d fields: %s", len(recovered_dict), list(recovered_dict.keys()))
+
+        return {
+            "raw_markdown": raw_markdown,
+            "recovered_data": recovered_dict,
+            "_fallback_prompt": prompt,
+            "_fallback_raw_output": raw_markdown,
+        }
+    except Exception as e:
+        logger.error("[LLM-Only Fallback] Failed: %s", e)
+        return {
+            "raw_markdown": "",
+            "recovered_data": {},
+            "_fallback_prompt": prompt,
+            "_fallback_raw_output": f"ERROR: {e}",
+        }
