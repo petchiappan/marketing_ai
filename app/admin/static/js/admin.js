@@ -20,6 +20,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('add-tool-btn').addEventListener('click', addTool);
     await loadDashboard();
     startAutoRefresh();
+    
+    // Listen for completion messages from live execution iframe
+    window.addEventListener('message', (event) => {
+        if (event.data && event.data.type === 'PIPELINE_COMPLETE') {
+            const activeSection = document.querySelector('.content-section.active');
+            if (activeSection && activeSection.id === 'section-trace-viewer') {
+                viewTrace(event.data.runId);
+            }
+        }
+    });
 });
 
 // ════════════════════════════════════════════════════════════════════════
@@ -853,14 +863,40 @@ async function viewTrace(runId) {
                 </div>
             ` : ''}
 
+            ${run.agent_name === 'workflow_pipeline' ? `
+                <div class="trace-section">
+                    <h3>📡 Live Execution Monitor</h3>
+                    <iframe
+                        id="live-exec-iframe"
+                        src="/admin/trace/${run.id}/live-execution"
+                        style="
+                            width: 100%;
+                            height: 520px;
+                            border: 1px solid rgba(56, 189, 248, 0.2);
+                            border-radius: 10px;
+                            background: #0b1120;
+                            margin-top: 0.5rem;
+                        "
+                    ></iframe>
+                    ${run.status === 'running' ? `
+                        <div style="text-align: center; margin-top: 0.75rem;">
+                            <button class="btn btn-sm btn-outline" onclick="viewTrace('${run.id}')" style="font-size: 0.8rem;">
+                                🔄 Refresh Status
+                            </button>
+                        </div>
+                    ` : ''}
+                </div>
+            ` : ''}
+
             ${run.output_summary ? `
                 <div class="trace-section">
                     <h3>📤 Output Summary</h3>
                     ${run.agent_name === 'workflow_pipeline' ? renderWorkflowPipeline(run.output_summary) : ''}
-                    ${run.agent_name === 'workflow_pipeline' ? renderActivityLog(run.output_summary) : ''}
-                    ${run.agent_name === 'workflow_pipeline' ? renderLlmDebug(run.output_summary) : ''}
+                    ${run.agent_name === 'workflow_pipeline' ? renderActivityLog(run.output_summary, run.id) : ''}
+                    ${run.agent_name === 'workflow_pipeline' ? renderLlmDebug(run.output_summary, run.id) : ''}
                     <details ${run.agent_name === 'workflow_pipeline' ? '' : 'open'} style="margin-top: 1rem;">
                         <summary style="cursor:pointer; font-size: 0.85rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 0.5rem;">Raw JSON Debug Output</summary>
+                        ${run.agent_name === 'workflow_pipeline' ? renderAgentFinalAnswer(run.output_summary) : ''}
                         <div class="trace-code trace-code-full">${formatOutputSummary(run.output_summary)}</div>
                     </details>
                 </div>
@@ -909,12 +945,17 @@ function renderWorkflowPipeline(summaryStr) {
     const llmDetail = data.executive_summary ? 'Summary & Scoring generated' : 'Merged contacts';
 
     // Step 4: Hybrid Fallback
-    const fallbackStatus = data.fallback_triggered ? 'completed' : 'skipped';
+    const fallbackStatus = data.fallback_triggered ? 'completed' : (sources.length === 0 ? 'failed' : 'skipped');
     const enrichSources = data.enrichment_source || {};
     const isLlmOnlyFallback = Object.values(enrichSources).some(v => v === 'LLM_Only_Fallback');
-    const fallbackDetail = data.fallback_triggered 
-        ? `${Object.keys(data.fallback_recovered_data || {}).length} fields recovered via ${isLlmOnlyFallback ? 'LLM (no tools)' : 'Agent'}`
-        : 'Sufficient data found; Agent skipped';
+    let fallbackDetail;
+    if (data.fallback_triggered) {
+        fallbackDetail = `${Object.keys(data.fallback_recovered_data || {}).length} fields recovered via ${isLlmOnlyFallback ? 'LLM (no tools)' : 'Agent'}`;
+    } else if (sources.length === 0) {
+        fallbackDetail = '⚠ No APIs enabled — fallback should have triggered';
+    } else {
+        fallbackDetail = 'Sufficient data found; Agent skipped';
+    }
         
     // Step 5: Salesforce Webhook
     const syncStatus = 'completed';
@@ -955,7 +996,7 @@ function renderWorkflowPipeline(summaryStr) {
     `;
 }
 
-function renderActivityLog(summaryStr) {
+function renderActivityLog(summaryStr, runId) {
     let data;
     try {
         data = JSON.parse(summaryStr);
@@ -968,43 +1009,54 @@ function renderActivityLog(summaryStr) {
         return '';
     }
 
-    const logText = logs.join('\n');
-
     return `
         <div class="activity-log-section" style="margin-top: 1.25rem;">
-            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem;">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem;">
                 <h3 style="margin: 0; font-size: 0.95rem; font-weight: 600; color: var(--text-primary);">
-                    📋 Activity Log <span style="font-weight: 400; color: var(--text-muted); font-size: 0.8rem;">(${logs.length} entries)</span>
+                    🚀 Crew Execution Log <span style="font-weight: 400; color: var(--text-muted); font-size: 0.8rem;">(${logs.length} steps)</span>
                 </h3>
-                <button class="btn btn-sm btn-outline" onclick="copyActivityLog(this)" style="font-size: 0.75rem; padding: 0.25rem 0.5rem;">
+                <button class="btn btn-sm btn-outline" onclick="copyCrewLog(this)" style="font-size: 0.75rem; padding: 0.25rem 0.5rem;">
                     📋 Copy Log
                 </button>
             </div>
-            <textarea
-                readonly
+
+            <iframe
+                id="crew-exec-iframe-${runId}"
+                src="/admin/trace/${runId}/crew-execution"
                 style="
                     width: 100%;
-                    min-height: 200px;
-                    max-height: 400px;
-                    padding: 0.75rem;
-                    font-family: var(--font-mono, 'Fira Code', 'Cascadia Code', Consolas, monospace);
-                    font-size: 0.78rem;
-                    line-height: 1.6;
-                    background: #0f1729;
-                    color: #a8d8a8;
+                    height: 480px;
                     border: 1px solid rgba(37, 99, 235, 0.15);
-                    border-radius: 8px;
-                    resize: vertical;
-                    white-space: pre;
-                    overflow-x: auto;
+                    border-radius: 10px;
+                    background: #0b1120;
                 "
-            >${escapeHtml(logText)}</textarea>
+            ></iframe>
+
+            <details style="margin-top: 0.75rem;">
+                <summary style="cursor:pointer; font-size: 0.8rem; font-weight: 600; color: var(--text-muted); margin-bottom: 0.5rem;">
+                    📋 Raw Terminal Log
+                </summary>
+                <iframe
+                    src="/admin/trace/${runId}/logs"
+                    style="
+                        width: 100%;
+                        height: 300px;
+                        border: 1px solid rgba(37, 99, 235, 0.15);
+                        border-radius: 8px;
+                        background: #0f1729;
+                    "
+                ></iframe>
+            </details>
+
+            <textarea class="crew-log-data" style="display:none">${escapeHtml(logs.join('\n'))}</textarea>
         </div>
     `;
 }
 
+
 function copyActivityLog(btn) {
-    const textarea = btn.closest('.activity-log-section').querySelector('textarea');
+    const section = btn.closest('.activity-log-section');
+    const textarea = section.querySelector('textarea');
     if (textarea) {
         navigator.clipboard.writeText(textarea.value).then(() => {
             const original = btn.innerHTML;
@@ -1014,7 +1066,53 @@ function copyActivityLog(btn) {
     }
 }
 
-function renderLlmDebug(summaryStr) {
+function copyCrewLog(btn) {
+    const section = btn.closest('.activity-log-section');
+    const textarea = section.querySelector('.crew-log-data');
+    if (textarea) {
+        navigator.clipboard.writeText(textarea.value).then(() => {
+            const original = btn.innerHTML;
+            btn.innerHTML = '✅ Copied!';
+            setTimeout(() => { btn.innerHTML = original; }, 1500);
+        });
+    }
+}
+
+function renderAgentFinalAnswer(summaryStr) {
+    let data;
+    try {
+        data = JSON.parse(summaryStr);
+    } catch {
+        return '';
+    }
+    const debug = data.llm_debug || {};
+    const agentAnswer = debug.agent_final_answer || '';
+    if (!agentAnswer) return '';
+
+    return `
+        <div style="margin-top: 1.25rem; margin-bottom: 1.25rem;">
+            <h3 style="font-size: 0.95rem; font-weight: 600; color: var(--text-primary); margin-bottom: 0.75rem;">
+                ✅ Agent Final Answer
+            </h3>
+            <textarea readonly style="
+                width: 100%;
+                min-height: 150px;
+                background: linear-gradient(135deg, #f0fdf4, #ecfdf5);
+                border: 1px solid rgba(22, 163, 74, 0.2);
+                border-left: 4px solid #16a34a;
+                border-radius: 8px;
+                padding: 1rem 1.25rem;
+                font-family: var(--font-mono, 'Fira Code', monospace);
+                font-size: 0.82rem;
+                line-height: 1.65;
+                resize: vertical;
+                color: #1e293b;
+            ">${escapeHtml(agentAnswer)}</textarea>
+        </div>
+    `;
+}
+
+function renderLlmDebug(summaryStr, runId) {
     let data;
     try {
         data = JSON.parse(summaryStr);
@@ -1111,6 +1209,37 @@ function renderLlmDebug(summaryStr) {
     }
 
     html += '</div>';
+
+    // ── Agent Final Answer — inline display ──
+    const agentAnswer = debug.agent_final_answer || '';
+
+    // ── Task Execution Trace iframe ──
+    const toolExecs = debug.tool_executions || [];
+    const fallbackTriggered = data.fallback_triggered || false;
+    if (toolExecs.length > 0 || agentAnswer || fallbackTriggered) {
+        html += `
+            <div style="margin-top: 1.25rem;">
+                <details open style="margin-bottom: 0.75rem; border: 1px solid rgba(37,99,235,0.1); border-radius: 8px; overflow: hidden;">
+                    <summary style="cursor:pointer; padding: 0.6rem 0.75rem; font-size: 0.85rem; font-weight: 600; color: var(--text-secondary); background: rgba(37,99,235,0.03);">
+                        🔧 Task Execution Trace (${toolExecs.length} tool call${toolExecs.length !== 1 ? 's' : ''})
+                    </summary>
+                    <div style="padding: 0;">
+                        <iframe 
+                            src="/admin/trace/${runId}/task-execution"
+                            style="
+                                width: 100%;
+                                height: 500px;
+                                border: none;
+                                border-top: 1px solid rgba(37, 99, 235, 0.1);
+                                background: #f5f7fa;
+                            "
+                        ></iframe>
+                    </div>
+                </details>
+            </div>
+        `;
+    }
+
     return html;
 }
 
@@ -1479,7 +1608,13 @@ async function triggerEnrichment(requestId) {
         }
 
         showToast('success', 'Enrichment Started', data.message || 'Enrichment triggered successfully!');
-        loadJobQueue();
+        
+        // Wait briefly for the backend DB flush before navigating and fetching runs
+        await new Promise(r => setTimeout(r, 600));
+        
+        // Navigate to workflow runs so the user can see the live monitor
+        window._filterByRequestId = requestId;
+        switchSection('workflow-runs');
     } catch (err) {
         console.error('Trigger enrichment error:', err);
         showToast('error', 'Error', 'Failed to trigger enrichment. Check console for details.');

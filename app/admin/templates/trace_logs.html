@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trace Logs</title>
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            background-color: #0f1729; /* Terminal background */
+            color: #a8d8a8; /* Terminal green text */
+            font-family: 'Fira Code', 'Cascadia Code', Consolas, monospace;
+            font-size: 13px;
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+
+        #terminal-container {
+            padding: 15px;
+            box-sizing: border-box;
+            height: 100%;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        .log-line {
+            margin-bottom: 4px;
+        }
+
+        .log-timestamp {
+            color: #7ec8e3; /* Timestamp color */
+        }
+
+        .log-step {
+            color: #f1fa8c; /* Step indicator color */
+            font-weight: 600;
+        }
+
+        .log-error {
+            color: #ff5555; /* Error red */
+            font-weight: 600;
+        }
+
+        .log-success {
+            color: #50fa7b; /* Success green */
+        }
+        
+        .log-warning {
+            color: #ffb86c; /* Warning orange */
+        }
+
+        .loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            color: #6272a4;
+            font-style: italic;
+        }
+    </style>
+</head>
+<body>
+    <div id="terminal-container">
+        <div class="loading">Loading logs...</div>
+    </div>
+
+    <script>
+        function escapeHtml(unsafe) {
+            return (unsafe || '').toString()
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        }
+
+        function formatLogLine(line) {
+            let formattedLine = escapeHtml(line);
+            
+            // Highlight Timestamp [HH:MM:SS]
+            formattedLine = formattedLine.replace(/^(\[\d{2}:\d{2}:\d{2}\])/, '<span class="log-timestamp">$1</span>');
+            
+            // Highlight Steps like "Step 1", "Step 7b"
+            formattedLine = formattedLine.replace(/(Step\s+\d+[a-z]?)/g, '<span class="log-step">$1</span>');
+
+            // Colorize based on content
+            if (formattedLine.toLowerCase().includes('error') || formattedLine.toLowerCase().includes('failed') || formattedLine.includes('⚠')) {
+                return `<div class="log-line log-error">${formattedLine}</div>`;
+            } else if (formattedLine.toLowerCase().includes('✅') || formattedLine.toLowerCase().includes('success') || formattedLine.toLowerCase().includes('pipeline complete')) {
+                return `<div class="log-line log-success">${formattedLine}</div>`;
+            } else if (formattedLine.toLowerCase().includes('warning') || formattedLine.toLowerCase().includes('skipped')) {
+                return `<div class="log-line log-warning">${formattedLine}</div>`;
+            }
+
+            return `<div class="log-line">${formattedLine}</div>`;
+        }
+
+        async function fetchLogs() {
+            // Extract runId from URL path: /admin/trace/{run_id}/logs
+            const pathParts = window.location.pathname.split('/');
+            const runId = pathParts[pathParts.length - 2]; 
+
+            try {
+                // Fetch physical logs directly
+                const logResp = await fetch(`/admin/api/agent-runs/${runId}/log-file`);
+                if (!logResp.ok) {
+                    throw new Error('Failed to fetch log file');
+                }
+                const logData = await logResp.json();
+                const logs = logData.logs || [];
+                
+                const container = document.getElementById('terminal-container');
+                
+                if (logs.length === 0) {
+                    container.innerHTML = '<div class="log-line">No logs available for this run.</div>';
+                    return;
+                }
+
+                // Render logs
+                container.innerHTML = logs.map(formatLogLine).join('');
+                
+                // Auto-scroll to bottom
+                container.scrollTop = container.scrollHeight;
+                
+            } catch (error) {
+                document.getElementById('terminal-container').innerHTML = `<div class="log-line log-error">Error loading logs: ${error.message}</div>`;
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', fetchLogs);
+    </script>
+</body>
+</html>

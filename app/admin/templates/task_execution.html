@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Task Execution Trace</title>
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            background-color: #f5f7fa;
+            color: #1e293b;
+            font-family: 'Fira Code', 'Cascadia Code', Consolas, monospace;
+            font-size: 13px;
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+
+        #trace-container {
+            padding: 18px;
+            box-sizing: border-box;
+            height: 100%;
+            overflow-y: auto;
+        }
+
+        /* ── Tool Execution Panel ── */
+        .tool-panel {
+            position: relative;
+            margin-bottom: 22px;
+            border: 2px dashed #94a3b8;
+            border-radius: 2px;
+            background: #ffffff;
+        }
+
+        .tool-panel-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 0;
+            position: relative;
+        }
+
+        .tool-panel-header-line {
+            position: absolute;
+            top: 50%;
+            left: 0;
+            right: 0;
+            height: 1px;
+            border-top: 2px dashed #94a3b8;
+        }
+
+        .tool-panel-header-label {
+            position: relative;
+            z-index: 1;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 14px;
+            margin: 0 auto;
+            background: #f5f7fa;
+            font-size: 12px;
+            font-weight: 600;
+            letter-spacing: 0.02em;
+            white-space: nowrap;
+        }
+
+        .tool-panel-header-label .status-icon {
+            font-size: 14px;
+        }
+
+        .tool-panel.completed .tool-panel-header-label {
+            color: #1d4ed8;
+        }
+
+        .tool-panel.failed .tool-panel-header-label {
+            color: #dc2626;
+        }
+
+        .tool-panel-body {
+            padding: 16px 20px;
+            font-size: 13px;
+            line-height: 1.7;
+        }
+
+        .tool-status-label {
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+
+        .tool-panel.completed .tool-status-label {
+            color: #16a34a;
+        }
+
+        .tool-panel.failed .tool-status-label {
+            color: #dc2626;
+        }
+
+        .tool-name-line {
+            color: #1e293b;
+            margin-bottom: 2px;
+        }
+
+        .tool-name-line .label {
+            font-weight: 600;
+        }
+
+        .tool-name-line .value {
+            color: #1e293b;
+        }
+
+        .tool-output-line {
+            color: #1e293b;
+            word-break: break-all;
+        }
+
+        .tool-output-line .label {
+            font-weight: 600;
+        }
+
+        .tool-output-line .value {
+            color: #334155;
+        }
+
+        /* ── Side rails (vertical dashed lines) ── */
+        .tool-panel::before,
+        .tool-panel::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            width: 1px;
+            border-left: 2px dashed #94a3b8;
+        }
+
+        .tool-panel::before {
+            left: 12px;
+        }
+
+        .tool-panel::after {
+            right: 12px;
+        }
+
+        .tool-panel-body {
+            margin-left: 20px;
+            margin-right: 20px;
+        }
+
+        /* ── Agent Final Answer Panel ── */
+        .final-answer-panel {
+            position: relative;
+            margin-bottom: 22px;
+            border: 2px dashed #94a3b8;
+            border-radius: 2px;
+            background: #ffffff;
+        }
+
+        .final-answer-panel::before,
+        .final-answer-panel::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            width: 1px;
+            border-left: 2px dashed #94a3b8;
+        }
+
+        .final-answer-panel::before {
+            left: 12px;
+        }
+
+        .final-answer-panel::after {
+            right: 12px;
+        }
+
+        .final-answer-header {
+            position: relative;
+        }
+
+        .final-answer-header-line {
+            position: absolute;
+            top: 50%;
+            left: 0;
+            right: 0;
+            height: 1px;
+            border-top: 2px dashed #94a3b8;
+        }
+
+        .final-answer-header-label {
+            position: relative;
+            z-index: 1;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 14px;
+            margin: 0 auto;
+            background: #f5f7fa;
+            font-size: 12px;
+            font-weight: 600;
+            color: #1d4ed8;
+            letter-spacing: 0.02em;
+            white-space: nowrap;
+        }
+
+        .final-answer-body {
+            padding: 16px 20px;
+            margin-left: 20px;
+            margin-right: 20px;
+            font-size: 13px;
+            line-height: 1.75;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        .final-answer-body .agent-label {
+            font-weight: 600;
+            color: #1e293b;
+            margin-bottom: 8px;
+        }
+
+        .final-answer-body .answer-title {
+            font-weight: 700;
+            color: #1e293b;
+            margin-top: 10px;
+            margin-bottom: 6px;
+        }
+
+        .final-answer-body .answer-content {
+            color: #334155;
+        }
+
+        .final-answer-body .answer-content strong,
+        .final-answer-body .answer-content b {
+            font-weight: 700;
+            color: #1e293b;
+        }
+
+        /* ── Loading ── */
+        .loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            color: #6272a4;
+            font-style: italic;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 40px 20px;
+            color: #94a3b8;
+            font-style: italic;
+        }
+    </style>
+</head>
+<body>
+    <div id="trace-container">
+        <div class="loading">Loading task execution trace...</div>
+    </div>
+
+    <script>
+        function escapeHtml(unsafe) {
+            return (unsafe || '').toString()
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        }
+
+        function renderToolPanel(exec) {
+            const statusClass = exec.status === 'completed' ? 'completed' : 'failed';
+            const statusIcon = exec.status === 'completed' ? '✅' : '❌';
+            const statusLabel = exec.status === 'completed' ? 'Tool Completed' : 'Tool Failed';
+            const headerText = exec.status === 'completed'
+                ? `Tool Execution Completed (#${exec.step})`
+                : `Tool Execution Failed (#${exec.step})`;
+
+            return `
+                <div class="tool-panel ${statusClass}">
+                    <div class="tool-panel-header">
+                        <div class="tool-panel-header-line"></div>
+                        <span class="tool-panel-header-label">
+                            <span class="status-icon">${statusIcon}</span>
+                            ${escapeHtml(headerText)}
+                        </span>
+                    </div>
+                    <div class="tool-panel-body">
+                        <div class="tool-status-label">${escapeHtml(statusLabel)}</div>
+                        <div class="tool-name-line">
+                            <span class="label">Tool: </span>
+                            <span class="value">${escapeHtml(exec.tool)}</span>
+                        </div>
+                        <div class="tool-output-line">
+                            <span class="label">Output: </span>
+                            <span class="value">${escapeHtml(exec.output)}</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function formatMarkdownSimple(text) {
+            // Simple markdown-like formatting for the final answer
+            let html = escapeHtml(text);
+            // Bold **text** and __text__
+            html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+            html = html.replace(/__(.+?)__/g, '<strong>$1</strong>');
+            // Headers ## and ###
+            html = html.replace(/^###\s+(.+)$/gm, '<strong>$1</strong>');
+            html = html.replace(/^##\s+(.+)$/gm, '<strong>$1</strong>');
+            html = html.replace(/^#\s+(.+)$/gm, '<strong>$1</strong>');
+            return html;
+        }
+
+        function renderFinalAnswer(agentFinalAnswer, agentName) {
+            if (!agentFinalAnswer) return '';
+
+            return `
+                <div class="final-answer-panel">
+                    <div class="final-answer-header">
+                        <div class="final-answer-header-line"></div>
+                        <span class="final-answer-header-label">
+                            <span class="status-icon">✅</span>
+                            Agent Final Answer
+                        </span>
+                    </div>
+                    <div class="final-answer-body">
+                        <div class="agent-label">Agent: ${escapeHtml(agentName || 'Fallback Enrichment Agent')}</div>
+                        <div class="answer-title">Final Answer:</div>
+                        <div class="answer-content">${formatMarkdownSimple(agentFinalAnswer)}</div>
+                    </div>
+                </div>
+            `;
+        }
+
+        async function loadTaskExecution() {
+            // Extract runId from URL path: /admin/trace/{run_id}/task-execution
+            const pathParts = window.location.pathname.split('/');
+            const runId = pathParts[pathParts.length - 2];
+
+            try {
+                const resp = await fetch(`/admin/api/agent-runs/${runId}`);
+                if (!resp.ok) {
+                    throw new Error('Failed to fetch run details');
+                }
+                const run = await resp.json();
+
+                const container = document.getElementById('trace-container');
+
+                if (!run.output_summary) {
+                    container.innerHTML = '<div class="empty-state">No output data available for this run.</div>';
+                    return;
+                }
+
+                let data;
+                try {
+                    data = JSON.parse(run.output_summary);
+                } catch {
+                    container.innerHTML = '<div class="empty-state">Could not parse output data.</div>';
+                    return;
+                }
+
+                const debug = data.llm_debug || {};
+                const toolExecutions = debug.tool_executions || [];
+                const agentFinalAnswer = debug.agent_final_answer || '';
+
+                if (toolExecutions.length === 0 && !agentFinalAnswer) {
+                    container.innerHTML = '<div class="empty-state">No task execution trace available. The fallback agent may not have been triggered for this run.</div>';
+                    return;
+                }
+
+                // Render tool execution panels (in reverse order — most recent first, matching screenshot)
+                let html = '';
+                const reversed = [...toolExecutions].reverse();
+                reversed.forEach(exec => {
+                    html += renderToolPanel(exec);
+                });
+
+                // Render agent final answer
+                html += renderFinalAnswer(agentFinalAnswer, 'Fallback Enrichment Agent');
+
+                container.innerHTML = html;
+
+                // Auto-scroll to top
+                container.scrollTop = 0;
+
+            } catch (error) {
+                document.getElementById('trace-container').innerHTML =
+                    `<div class="empty-state" style="color: #dc2626;">Error loading task execution: ${escapeHtml(error.message)}</div>`;
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', loadTaskExecution);
+    </script>
+</body>
+</html>

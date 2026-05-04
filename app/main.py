@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
+from sqlalchemy import text
 from fastapi.staticfiles import StaticFiles
 
 from app.config.logging_config import setup_logging
@@ -54,7 +55,15 @@ async def lifespan(app: FastAPI):
     from app.db import repository as repo
     from app.auth.local_auth import hash_password
 
-    # Startup: ensure all tables exist (idempotent)
+    # Startup: enable pgvector extension (isolated transaction to prevent concurrent worker crashes)
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning("Vector extension init conflict (handled): %s", e)
+
+    # Ensure all tables exist (idempotent)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 

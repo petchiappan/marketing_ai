@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Crew Execution Log</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body, html {
+            height: 100%;
+            background: #0b1120;
+            color: #e2e8f0;
+            font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+            font-size: 13px;
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+
+        #crew-container {
+            padding: 0;
+            height: 100%;
+            overflow-y: auto;
+            scrollbar-width: thin;
+            scrollbar-color: #1e3a5f #0b1120;
+        }
+        #crew-container::-webkit-scrollbar { width: 6px; }
+        #crew-container::-webkit-scrollbar-track { background: #0b1120; }
+        #crew-container::-webkit-scrollbar-thumb { background: #1e3a5f; border-radius: 3px; }
+
+        /* ── Header Bar ── */
+        .crew-header {
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            background: linear-gradient(135deg, #0f1b2e 0%, #0b1120 100%);
+            border-bottom: 1px solid rgba(56, 189, 248, 0.12);
+            padding: 12px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            backdrop-filter: blur(12px);
+        }
+        .crew-header-title {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+            font-weight: 600;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: #38bdf8;
+        }
+        .crew-header-title .pulse-dot {
+            width: 7px; height: 7px;
+            border-radius: 50%;
+            background: #22c55e;
+            box-shadow: 0 0 6px #22c55e;
+            animation: pulseDot 2s ease-in-out infinite;
+        }
+        @keyframes pulseDot {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(0.8); }
+        }
+        .crew-header-meta {
+            font-size: 11px;
+            color: #64748b;
+            display: flex;
+            gap: 16px;
+        }
+        .crew-header-meta span { display: flex; align-items: center; gap: 4px; }
+
+        /* ── Progress Bar ── */
+        .progress-track {
+            height: 3px;
+            background: rgba(56, 189, 248, 0.08);
+            position: sticky;
+            top: 43px;
+            z-index: 9;
+        }
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #38bdf8, #818cf8, #22c55e);
+            border-radius: 0 2px 2px 0;
+            transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 0 8px rgba(56, 189, 248, 0.4);
+        }
+
+        /* ── Stage Groups ── */
+        .stages-container { padding: 16px 20px 24px; }
+
+        .stage-group {
+            margin-bottom: 6px;
+            border-radius: 8px;
+            overflow: hidden;
+            border: 1px solid rgba(56, 189, 248, 0.06);
+            background: rgba(15, 23, 42, 0.5);
+            transition: border-color 0.3s ease, box-shadow 0.3s ease;
+        }
+        .stage-group:hover {
+            border-color: rgba(56, 189, 248, 0.15);
+            box-shadow: 0 0 20px rgba(56, 189, 248, 0.04);
+        }
+        .stage-group.stage-expanded { border-color: rgba(56, 189, 248, 0.18); }
+
+        /* ── Stage Header ── */
+        .stage-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 16px;
+            cursor: pointer;
+            user-select: none;
+            transition: background 0.2s ease;
+        }
+        .stage-header:hover { background: rgba(56, 189, 248, 0.04); }
+
+        .stage-chevron {
+            font-size: 10px;
+            color: #475569;
+            transition: transform 0.25s ease;
+            flex-shrink: 0;
+            width: 14px;
+            text-align: center;
+        }
+        .stage-expanded .stage-chevron { transform: rotate(90deg); color: #38bdf8; }
+
+        .stage-icon {
+            width: 30px; height: 30px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            flex-shrink: 0;
+            border: 1.5px solid transparent;
+            transition: all 0.3s ease;
+        }
+
+        .stage-completed .stage-icon {
+            background: rgba(22, 197, 94, 0.1);
+            border-color: rgba(22, 197, 94, 0.25);
+        }
+        .stage-warning .stage-icon {
+            background: rgba(245, 158, 11, 0.1);
+            border-color: rgba(245, 158, 11, 0.25);
+        }
+        .stage-running .stage-icon {
+            background: rgba(56, 189, 248, 0.1);
+            border-color: rgba(56, 189, 248, 0.25);
+            animation: pulseDot 2s ease-in-out infinite;
+        }
+        .stage-skipped .stage-icon {
+            background: rgba(100, 116, 139, 0.1);
+            border-color: rgba(100, 116, 139, 0.2);
+            opacity: 0.5;
+        }
+
+        .stage-info { flex: 1; min-width: 0; }
+
+        .stage-name {
+            font-size: 12px;
+            font-weight: 600;
+            color: #e2e8f0;
+            letter-spacing: 0.02em;
+        }
+        .stage-skipped .stage-name { color: #64748b; }
+
+        .stage-subtitle {
+            font-size: 11px;
+            color: #64748b;
+            margin-top: 1px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .stage-badge {
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            padding: 2px 8px;
+            border-radius: 4px;
+            flex-shrink: 0;
+        }
+        .badge-completed { background: rgba(22, 197, 94, 0.12); color: #4ade80; }
+        .badge-warning { background: rgba(245, 158, 11, 0.12); color: #fbbf24; }
+        .badge-running { background: rgba(56, 189, 248, 0.12); color: #38bdf8; }
+        .badge-skipped { background: rgba(100, 116, 139, 0.1); color: #64748b; }
+
+        .stage-duration {
+            font-size: 10px;
+            color: #475569;
+            font-family: 'JetBrains Mono', monospace;
+            flex-shrink: 0;
+        }
+
+        /* ── Stage Body (logs) ── */
+        .stage-body {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .stage-expanded .stage-body { max-height: 2000px; }
+
+        .stage-logs {
+            padding: 0 16px 12px 58px;
+            border-top: 1px solid rgba(56, 189, 248, 0.06);
+        }
+
+        .log-entry {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            padding: 5px 0;
+            font-size: 12px;
+            line-height: 1.55;
+            animation: logSlideIn 0.3s ease forwards;
+            opacity: 0;
+        }
+        @keyframes logSlideIn {
+            from { opacity: 0; transform: translateX(-6px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+
+        .log-ts {
+            color: #475569;
+            font-size: 11px;
+            flex-shrink: 0;
+            min-width: 58px;
+        }
+        .log-msg { color: #94a3b8; word-break: break-word; }
+        .log-msg.log-success { color: #4ade80; }
+        .log-msg.log-warn { color: #fbbf24; }
+        .log-msg.log-err { color: #f87171; }
+        .log-msg.log-info { color: #38bdf8; }
+
+        /* ── Thinking Indicator ── */
+        .thinking-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 0 4px;
+            color: #38bdf8;
+            font-size: 11px;
+            font-weight: 500;
+        }
+        .thinking-dots span {
+            display: inline-block;
+            width: 4px; height: 4px;
+            border-radius: 50%;
+            background: #38bdf8;
+            animation: thinkBounce 1.4s ease-in-out infinite;
+            margin: 0 1px;
+        }
+        .thinking-dots span:nth-child(2) { animation-delay: 0.2s; }
+        .thinking-dots span:nth-child(3) { animation-delay: 0.4s; }
+        @keyframes thinkBounce {
+            0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); }
+            40% { opacity: 1; transform: scale(1.2); }
+        }
+
+        /* ── Empty / Loading States ── */
+        .loading-state, .empty-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            min-height: 200px;
+            gap: 12px;
+            color: #475569;
+        }
+        .loading-spinner {
+            width: 28px; height: 28px;
+            border: 2.5px solid rgba(56, 189, 248, 0.15);
+            border-top-color: #38bdf8;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .empty-icon { font-size: 28px; opacity: 0.4; }
+    </style>
+</head>
+<body>
+    <div id="crew-container">
+        <div class="loading-state">
+            <div class="loading-spinner"></div>
+            <span>Loading execution log…</span>
+        </div>
+    </div>
+
+    <script>
+        function escapeHtml(s) {
+            return (s || '').toString()
+                .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        }
+
+        /* ── Pipeline Stage Definitions ── */
+        const STAGE_DEFS = [
+            { id: '1',  icon: '✅', name: 'Input Validation',     stepNums: ['1'] },
+            { id: '2',  icon: '🔌', name: 'API Selection',        stepNums: ['2'] },
+            { id: '3',  icon: '📡', name: 'Data Fetching',        stepNums: ['3'] },
+            { id: '4',  icon: '🔄', name: 'Validate & Retry',     stepNums: ['4'] },
+            { id: '5',  icon: '⚙️', name: 'Normalization',        stepNums: ['5'] },
+            { id: '6',  icon: '💾', name: 'Store Raw Results',     stepNums: ['6'] },
+            { id: '7',  icon: '🧠', name: 'LLM Intelligence',     stepNums: ['7'] },
+            { id: '7b', icon: '🤖', name: 'Hybrid Fallback',      stepNums: ['7b'] },
+            { id: '8',  icon: '☁️', name: 'Finalize & Sync',      stepNums: ['8', '8b'] },
+        ];
+
+        function parseLogEntry(entry) {
+            const tsMatch = entry.match(/^\[(\d{2}:\d{2}:\d{2})\]\s*/);
+            const timestamp = tsMatch ? tsMatch[1] : '';
+            const rest = tsMatch ? entry.slice(tsMatch[0].length) : entry;
+            const stepMatch = rest.match(/Step\s+(\d+[a-z]?)\b/i);
+            const stepNum = stepMatch ? stepMatch[1] : null;
+            const cleanMsg = rest.replace(/^\[Workflow\]\s*/, '');
+            const lower = cleanMsg.toLowerCase();
+
+            let status = 'info';
+            if (lower.includes('✅') || lower.includes('complete') || lower.includes('stored') || lower.includes('all fetches ok') || lower.includes('syncing'))
+                status = 'success';
+            else if (lower.includes('⚠') || lower.includes('error') || lower.includes('failed') || lower.includes('timeout'))
+                status = 'warn';
+            else if (lower.includes('pipeline complete'))
+                status = 'success';
+
+            return { timestamp, stepNum, message: cleanMsg, status };
+        }
+
+        function classifyStageStatus(logs) {
+            if (!logs.length) return 'skipped';
+            const hasErr = logs.some(l => l.status === 'warn');
+            const hasSuccess = logs.some(l => l.status === 'success');
+            if (hasErr && !hasSuccess) return 'warning';
+            if (hasErr && hasSuccess) return 'warning';
+            if (hasSuccess) return 'completed';
+            return 'running';
+        }
+
+        function groupLogsIntoStages(logs) {
+            const stages = STAGE_DEFS.map(def => ({
+                ...def,
+                logs: [],
+                status: 'skipped',
+                subtitle: '',
+                duration: '',
+            }));
+
+            const ungrouped = [];
+
+            logs.forEach(log => {
+                let matched = false;
+                if (log.stepNum) {
+                    // Match '7b' to the 7b stage, '7' only to stage 7 (not 7b)
+                    for (const stage of stages) {
+                        if (stage.stepNums.includes(log.stepNum)) {
+                            stage.logs.push(log);
+                            matched = true;
+                            break;
+                        }
+                    }
+                }
+                // Fallback/fallback mentions go to 7b
+                if (!matched && log.message && (log.message.toLowerCase().includes('fallback') || log.message.toLowerCase().includes('hybrid'))) {
+                    const fb = stages.find(s => s.id === '7b');
+                    if (fb) { fb.logs.push(log); matched = true; }
+                }
+                if (!matched) ungrouped.push(log);
+            });
+
+            // Compute status and subtitle for each stage
+            stages.forEach(stage => {
+                stage.status = classifyStageStatus(stage.logs);
+                if (stage.logs.length > 0) {
+                    const last = stage.logs[stage.logs.length - 1];
+                    stage.subtitle = last.message.substring(0, 120);
+                    // Duration from first to last log
+                    if (stage.logs.length > 1) {
+                        const first = stage.logs[0];
+                        stage.duration = first.timestamp && last.timestamp
+                            ? `${first.timestamp} → ${last.timestamp}` : '';
+                    } else {
+                        stage.duration = stage.logs[0].timestamp || '';
+                    }
+                }
+            });
+
+            return { stages, ungrouped };
+        }
+
+        function renderStageGroup(stage, idx) {
+            const statusClass = `stage-${stage.status}`;
+            const badgeClass = `badge-${stage.status}`;
+            const badgeLabel = { completed: 'Done', warning: 'Warn', running: 'Active', skipped: 'Skip' }[stage.status] || stage.status;
+            const isExpanded = stage.status === 'warning' || stage.status === 'running';
+
+            const logsHtml = stage.logs.map((log, i) => {
+                const msgClass = log.status === 'success' ? 'log-success'
+                    : log.status === 'warn' ? 'log-warn'
+                    : log.status === 'err' ? 'log-err' : '';
+                return `<div class="log-entry" style="animation-delay: ${i * 40}ms">
+                    <span class="log-ts">${escapeHtml(log.timestamp)}</span>
+                    <span class="log-msg ${msgClass}">${escapeHtml(log.message)}</span>
+                </div>`;
+            }).join('');
+
+            return `
+                <div class="stage-group ${statusClass}${isExpanded ? ' stage-expanded' : ''}" data-stage="${stage.id}">
+                    <div class="stage-header" onclick="toggleStage(this)">
+                        <span class="stage-chevron">▶</span>
+                        <div class="stage-icon">${stage.icon}</div>
+                        <div class="stage-info">
+                            <div class="stage-name">Step ${escapeHtml(stage.id)} — ${escapeHtml(stage.name)}</div>
+                            <div class="stage-subtitle">${escapeHtml(stage.subtitle)}</div>
+                        </div>
+                        <span class="stage-badge ${badgeClass}">${badgeLabel}</span>
+                        ${stage.duration ? `<span class="stage-duration">${escapeHtml(stage.duration)}</span>` : ''}
+                    </div>
+                    <div class="stage-body">
+                        <div class="stage-logs">
+                            ${stage.logs.length ? logsHtml : '<div class="log-entry" style="animation-delay:0ms"><span class="log-msg" style="color:#475569;font-style:italic">No log entries for this stage</span></div>'}
+                        </div>
+                    </div>
+                </div>`;
+        }
+
+        function toggleStage(headerEl) {
+            const group = headerEl.closest('.stage-group');
+            group.classList.toggle('stage-expanded');
+        }
+
+        async function loadCrewExecution() {
+            const pathParts = window.location.pathname.split('/');
+            const runId = pathParts[pathParts.length - 2];
+            const container = document.getElementById('crew-container');
+
+            try {
+                const resp = await fetch(`/admin/api/agent-runs/${runId}`);
+                if (!resp.ok) throw new Error('Failed to fetch run details');
+                const run = await resp.json();
+
+                if (!run.output_summary) {
+                    container.innerHTML = '<div class="empty-state"><span class="empty-icon">📭</span><span>No execution data available for this run.</span></div>';
+                    return;
+                }
+
+                let data;
+                try { data = JSON.parse(run.output_summary); }
+                catch { container.innerHTML = '<div class="empty-state"><span class="empty-icon">⚠️</span><span>Could not parse output data.</span></div>'; return; }
+
+                const logs = (data.activity_log || []).map(parseLogEntry);
+                if (!logs.length) {
+                    container.innerHTML = '<div class="empty-state"><span class="empty-icon">📋</span><span>Activity log is empty for this run.</span></div>';
+                    return;
+                }
+
+                const { stages } = groupLogsIntoStages(logs);
+                const completedCount = stages.filter(s => s.status === 'completed').length;
+                const totalStages = stages.length;
+                const progressPct = Math.round((completedCount / totalStages) * 100);
+
+                const isFinished = data.activity_log?.some(l => l.toLowerCase().includes('pipeline complete'));
+                const company = data.company_name || run.input_summary?.replace(/^Workflow enrichment for '|'$/g, '') || '—';
+                const elapsed = run.duration_ms ? (run.duration_ms / 1000).toFixed(1) + 's' : '—';
+
+                let html = '';
+
+                // Header
+                html += `<div class="crew-header">
+                    <div class="crew-header-title">
+                        ${isFinished ? '' : '<div class="pulse-dot"></div>'}
+                        <span>Crew Execution Log</span>
+                    </div>
+                    <div class="crew-header-meta">
+                        <span>🏢 ${escapeHtml(company)}</span>
+                        <span>⏱ ${escapeHtml(elapsed)}</span>
+                        <span>📊 ${completedCount}/${totalStages} stages</span>
+                    </div>
+                </div>`;
+
+                // Progress bar
+                html += `<div class="progress-track"><div class="progress-fill" style="width: ${isFinished ? 100 : progressPct}%"></div></div>`;
+
+                // Stages
+                html += '<div class="stages-container">';
+                stages.forEach((stage, idx) => { html += renderStageGroup(stage, idx); });
+
+                // Pipeline complete indicator
+                if (isFinished) {
+                    html += `<div style="text-align:center; padding:12px 0 4px; font-size:12px; color:#4ade80; font-weight:600; letter-spacing:0.04em;">
+                        🏁 Pipeline execution completed successfully
+                    </div>`;
+                }
+
+                html += '</div>';
+                container.innerHTML = html;
+                container.scrollTop = 0;
+
+            } catch (error) {
+                container.innerHTML = `<div class="empty-state"><span class="empty-icon">❌</span><span style="color:#f87171">Error: ${escapeHtml(error.message)}</span></div>`;
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', loadCrewExecution);
+    </script>
+</body>
+</html>

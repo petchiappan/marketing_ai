@@ -12,6 +12,7 @@ class FallbackRecoveryData(BaseModel):
     Strict Salesforce-bound schema. 
     The fast extractor LLM must conform to these types strictly.
     """
+    company_description: Optional[str] = Field(default=None, description="General description and details about the company")
     ceo_email: Optional[str] = Field(default=None, description="The validated business email for the CEO")
     company_phone_number: Optional[str] = Field(default=None, description="The primary business phone number")
     revenue: Optional[int] = Field(default=None, description="Annual recurring revenue in USD")

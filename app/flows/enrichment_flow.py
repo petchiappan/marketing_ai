@@ -30,12 +30,37 @@ class LeadEnrichmentFlow(Flow[EnrichmentState]):
     """
 
     def _log(self, message: str):
-        """Append a timestamped log entry to activity_log and also emit to Python logger."""
+        """Append a timestamped log entry to activity_log, emit to logger, and push to Redis for live streaming."""
         from datetime import datetime
+        import os
         ts = datetime.now().strftime("%H:%M:%S")
         entry = f"[{ts}] {message}"
         self.state.activity_log.append(entry)
         logger.info(message)
+
+        if self.state.agent_run_id:
+            # 1. Save to physical log file for permanent persistence
+            log_dir = "app/logs/agent_runs"
+            os.makedirs(log_dir, exist_ok=True)
+            log_file = os.path.join(log_dir, f"{self.state.agent_run_id}.log")
+            try:
+                with open(log_file, "a", encoding="utf-8") as f:
+                    f.write(entry + "\n")
+            except Exception as e:
+                logger.error("Failed to write to log file: %s", e)
+
+            # 2. Push to Redis for real-time streaming to admin dashboard
+            try:
+                import redis
+                from app.config.settings import settings
+                r = redis.from_url(settings.redis_url, decode_responses=True)
+                key = f"flow:live:{self.state.agent_run_id}"
+                r.rpush(key, entry)
+                r.expire(key, 3600)  # TTL 1 hour
+                r.publish(f"flow:events:{self.state.agent_run_id}", entry)
+                r.close()
+            except Exception:
+                pass  # Don't let Redis failures break the pipeline
 
     # ── Step 1: Validate ─────────────────────────────────────────────────
 
@@ -159,16 +184,21 @@ class LeadEnrichmentFlow(Flow[EnrichmentState]):
         If threshold fails, builds Target_Gap and calls the Fallback Agent.
         ALSO force-triggers when no APIs were used (LLM data is hallucinated).
         """
-        if not self.state.llm_output:
-            self._log("[Workflow] Step 7b — No LLM output. Skipping fallback.")
-            return
-
         # ── Force-trigger when NO APIs were used ──
         # If enabled_tools is empty, the LLM received empty data and
         # hallucinated everything. We MUST go to fallback for real data.
         no_real_data = not self.state.enabled_tools
         if no_real_data:
             self._log("[Workflow] Step 7b — ⚠ No APIs were enabled. LLM output is based on empty data (likely hallucinated). Forcing fallback.")
+
+        # Only skip fallback if LLM output is empty AND we had real API data
+        if not self.state.llm_output and not no_real_data:
+            self._log("[Workflow] Step 7b — No LLM output. Skipping fallback.")
+            return
+
+        # Initialize llm_output to empty dict if None so .get() calls don't crash
+        if not self.state.llm_output:
+            self.state.llm_output = {}
 
         scores = self.state.llm_output.get("lead_scores", {})
         confidence = float(scores.get("confidence_score", 1.0))
@@ -208,10 +238,11 @@ class LeadEnrichmentFlow(Flow[EnrichmentState]):
             if not financials or not financials.get("revenue"):
                 gap.append("revenue")
         
-        # If no gaps, we skip fallback
         if not gap:
-            self._log("[Workflow] Step 7b — No gaps detected. Fallback skipped.")
+            self._log("[Workflow] Step 7b — No missing data gaps identified. Fallback skipped.")
             return
+
+        self._log("[Workflow] Step 7b — Gaps identified. Fallback triggered. Target_Gap: %s" % gap)
 
         self.state.target_gap = gap
         self.state.fallback_triggered = True
@@ -265,19 +296,23 @@ class LeadEnrichmentFlow(Flow[EnrichmentState]):
             actual_gap = gap
             
         if not actual_gap:
-            self._log("[Workflow] Step 7b — All gap elements recovered from Redis cache!")
+            self._log("[Workflow] Step 7b — Target gaps recovered from Redis cache, but running fallback anyway for comprehensive details.")
             self.state.fallback_recovered_data = cache_hits
             for k in cache_hits:
                 self.state.enrichment_source[k] = "Redis_Cache"
-            return
             
         from app.agents.fallback_agent import run_fallback, run_llm_only_fallback
         from app.tools.registry import get_agent_tool_assignments, resolve_tools
         import concurrent.futures
 
         tool_assignments = get_agent_tool_assignments()
+        self._log(f"[Workflow] Step 7b — Resolved tool assignments: {tool_assignments}")
+
         fallback_tool_names = tool_assignments.get("fallback_agent", ["web_search", "news_search"])
+        self._log(f"[Workflow] Step 7b — Fallback tool names: {fallback_tool_names}")
+
         fallback_tools = resolve_tools(fallback_tool_names)
+        self._log(f"[Workflow] Step 7b — Resolved fallback tools: {fallback_tools}")
 
         fallback_result = {}
         loop = asyncio.get_running_loop()
@@ -347,6 +382,8 @@ class LeadEnrichmentFlow(Flow[EnrichmentState]):
         # Store fallback LLM I/O for debug
         self.state.additional_context["_fallback_prompt"] = fallback_result.get("_fallback_prompt", "")
         self.state.additional_context["_fallback_raw_output"] = fallback_result.get("_fallback_raw_output", fallback_result.get("raw_markdown", ""))
+        self.state.additional_context["_tool_executions"] = fallback_result.get("_tool_executions", [])
+        self.state.additional_context["_agent_final_answer"] = fallback_result.get("_agent_final_answer", "")
         self._log("[Workflow] Step 7b — Fallback complete. Recovered %d fields: %s" % (len(recovered), list(recovered.keys())))
 
     # ── Step 8: Finalize & Store ─────────────────────────────────────────
@@ -362,6 +399,8 @@ class LeadEnrichmentFlow(Flow[EnrichmentState]):
         if self.state.fallback_triggered:
             llm_debug["fallback_prompt"] = self.state.additional_context.get("_fallback_prompt", "")
             llm_debug["fallback_raw_output"] = self.state.additional_context.get("_fallback_raw_output", "")
+            llm_debug["tool_executions"] = self.state.additional_context.get("_tool_executions", [])
+            llm_debug["agent_final_answer"] = self.state.additional_context.get("_agent_final_answer", "")
 
         self.state.final_output = {
             "company_name": self.state.company_name,

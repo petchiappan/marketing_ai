@@ -143,6 +143,7 @@ async def _run_workflow_pipeline(request_id: uuid.UUID) -> None:
         flow.state.additional_context = context
         flow.state.salesforce_lead_id = req.salesforce_lead_id
         flow.state.few_shot_examples = few_shots
+        flow.state.agent_run_id = str(agent_run.id)
 
         # kickoff() is synchronous in CrewAI Flows
         await loop.run_in_executor(None, flow.kickoff)

@@ -52,3 +52,6 @@ class EnrichmentState(BaseModel):
 
     # ── Activity Log (for admin debugging) ──
     activity_log: list[str] = []
+
+    # ── Live Streaming ──
+    agent_run_id: str = ""

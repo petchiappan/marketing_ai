@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live Execution Monitor</title>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body, html {
+            height: 100%;
+            background: #0b1120;
+            color: #e2e8f0;
+            font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+            font-size: 13px;
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+
+        #live-container {
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* ── Sticky Header ── */
+        .live-header {
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            background: linear-gradient(135deg, #0f1b2e 0%, #0b1120 100%);
+            border-bottom: 1px solid rgba(56, 189, 248, 0.12);
+            padding: 10px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-shrink: 0;
+        }
+
+        .live-header-left {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .live-indicator {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+
+        .live-indicator.streaming { color: #22c55e; }
+        .live-indicator.completed { color: #38bdf8; }
+        .live-indicator.error { color: #f87171; }
+
+        .live-dot {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            background: #22c55e;
+            box-shadow: 0 0 8px #22c55e;
+            animation: livePulse 1.5s ease-in-out infinite;
+        }
+        .completed .live-dot {
+            background: #38bdf8;
+            box-shadow: 0 0 6px #38bdf8;
+            animation: none;
+        }
+
+        @keyframes livePulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.4; transform: scale(0.7); }
+        }
+
+        .live-header-meta {
+            font-size: 11px;
+            color: #475569;
+            display: flex;
+            gap: 14px;
+        }
+
+        /* ── Log Output Area ── */
+        .log-output {
+            flex: 1;
+            overflow-y: auto;
+            padding: 16px 20px;
+            scrollbar-width: thin;
+            scrollbar-color: #1e3a5f #0b1120;
+        }
+        .log-output::-webkit-scrollbar { width: 6px; }
+        .log-output::-webkit-scrollbar-track { background: #0b1120; }
+        .log-output::-webkit-scrollbar-thumb { background: #1e3a5f; border-radius: 3px; }
+
+        /* ── Flow Box (mimics CrewAI terminal output) ── */
+        .flow-box {
+            margin-bottom: 8px;
+            border: 1px solid rgba(56, 189, 248, 0.12);
+            border-radius: 6px;
+            overflow: hidden;
+            animation: boxSlideIn 0.4s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+            opacity: 0;
+        }
+        .flow-box.no-anim { animation: none; opacity: 1; }
+
+        @keyframes boxSlideIn {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .flow-box-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 14px;
+            background: rgba(15, 23, 42, 0.6);
+            border-bottom: 1px solid rgba(56, 189, 248, 0.06);
+        }
+
+        .flow-box-icon { font-size: 16px; flex-shrink: 0; }
+
+        .flow-box-step {
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            padding: 2px 8px;
+            border-radius: 4px;
+            flex-shrink: 0;
+        }
+        .step-badge-running { background: rgba(56, 189, 248, 0.15); color: #38bdf8; }
+        .step-badge-completed { background: rgba(34, 197, 94, 0.15); color: #4ade80; }
+        .step-badge-warning { background: rgba(251, 191, 36, 0.15); color: #fbbf24; }
+
+        .flow-box-title { font-size: 12px; font-weight: 600; color: #e2e8f0; flex: 1; }
+        .flow-box-ts { font-size: 10px; color: #475569; flex-shrink: 0; }
+
+        .flow-box-body {
+            padding: 8px 14px 10px;
+            font-size: 12px;
+            color: #94a3b8;
+            line-height: 1.55;
+        }
+
+        /* Color variants */
+        .flow-box.box-success { border-color: rgba(34, 197, 94, 0.2); }
+        .flow-box.box-success .flow-box-header { background: rgba(34, 197, 94, 0.06); }
+        .flow-box.box-warning { border-color: rgba(251, 191, 36, 0.2); }
+        .flow-box.box-warning .flow-box-header { background: rgba(251, 191, 36, 0.06); }
+        .flow-box.box-info { border-color: rgba(56, 189, 248, 0.15); }
+        .flow-box.box-error { border-color: rgba(248, 113, 113, 0.2); }
+        .flow-box.box-error .flow-box-header { background: rgba(248, 113, 113, 0.06); }
+
+        /* ── Thinking Indicator ── */
+        .thinking-bar {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 14px;
+            margin-top: 4px;
+            font-size: 12px;
+            color: #38bdf8;
+            font-weight: 500;
+        }
+
+        .thinking-dots span {
+            display: inline-block;
+            width: 5px; height: 5px;
+            border-radius: 50%;
+            background: #38bdf8;
+            margin: 0 2px;
+            animation: dotBounce 1.4s ease-in-out infinite;
+        }
+        .thinking-dots span:nth-child(2) { animation-delay: 0.2s; }
+        .thinking-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+        @keyframes dotBounce {
+            0%, 80%, 100% { opacity: 0.25; transform: scale(0.8); }
+            40% { opacity: 1; transform: scale(1.3); }
+        }
+
+        /* ── Completion Banner ── */
+        .completion-banner {
+            text-align: center;
+            padding: 14px;
+            font-size: 13px;
+            font-weight: 600;
+            color: #4ade80;
+            border-top: 1px solid rgba(34, 197, 94, 0.15);
+            background: rgba(34, 197, 94, 0.04);
+            animation: boxSlideIn 0.5s ease forwards;
+            opacity: 0;
+        }
+        .completion-banner.no-anim { animation: none; opacity: 1; }
+
+        /* ── Agent Final Answer ── */
+        .final-answer-section {
+            margin-top: 12px;
+            border: 1px solid rgba(34, 197, 94, 0.2);
+            border-radius: 8px;
+            overflow: hidden;
+            animation: boxSlideIn 0.5s ease 0.2s forwards;
+            opacity: 0;
+        }
+        .final-answer-section.no-anim { animation: none; opacity: 1; }
+
+        .final-answer-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 16px;
+            background: rgba(34, 197, 94, 0.08);
+            border-bottom: 1px solid rgba(34, 197, 94, 0.1);
+            font-size: 12px;
+            font-weight: 700;
+            color: #4ade80;
+            letter-spacing: 0.04em;
+        }
+
+        .final-answer-body {
+            padding: 14px 16px;
+            font-size: 12px;
+            line-height: 1.7;
+            color: #cbd5e1;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        /* ── Empty / Connecting state ── */
+        .connecting-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            gap: 12px;
+            color: #475569;
+        }
+
+        .connecting-spinner {
+            width: 24px; height: 24px;
+            border: 2.5px solid rgba(56, 189, 248, 0.15);
+            border-top-color: #38bdf8;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+    <div id="live-container">
+        <div class="live-header">
+            <div class="live-header-left">
+                <div class="live-indicator streaming" id="live-status">
+                    <div class="live-dot"></div>
+                    <span>Connecting…</span>
+                </div>
+            </div>
+            <div class="live-header-meta">
+                <span id="meta-steps">0 steps</span>
+                <span id="meta-elapsed">0s</span>
+            </div>
+        </div>
+
+        <div class="log-output" id="log-output">
+            <div class="connecting-state">
+                <div class="connecting-spinner"></div>
+                <span>Connecting to execution stream…</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const STEP_ICONS = {
+            '1': '✅', '2': '🔌', '3': '📡', '4': '🔄', '5': '⚙️',
+            '6': '💾', '7': '🧠', '7b': '🤖', '8': '☁️', '8b': '☁️'
+        };
+
+        const STEP_NAMES = {
+            '1': 'Input Validation', '2': 'API Selection', '3': 'Data Fetching',
+            '4': 'Validate & Retry', '5': 'Normalization', '6': 'Store Raw',
+            '7': 'LLM Intelligence', '7b': 'Hybrid Fallback', '8': 'Finalize',
+            '8b': 'Salesforce Sync'
+        };
+
+        let stepCount = 0;
+        let startTime = Date.now();
+        let elapsedTimer = null;
+        let autoScroll = true;
+        let isCompleted = false;
+
+        function getRunId() {
+            const pathParts = window.location.pathname.split('/');
+            return pathParts[pathParts.length - 2];
+        }
+
+        function escapeHtml(s) {
+            return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        }
+
+        function parseLogEntry(entry) {
+            const tsMatch = entry.match(/^\[(\d{2}:\d{2}:\d{2})\]\s*/);
+            const timestamp = tsMatch ? tsMatch[1] : '';
+            const rest = tsMatch ? entry.slice(tsMatch[0].length) : entry;
+
+            const stepMatch = rest.match(/Step\s+(\d+[a-z]?)\b/i);
+            const stepNum = stepMatch ? stepMatch[1] : null;
+
+            const cleanMsg = rest.replace(/^\[Workflow\]\s*/, '');
+            const lower = cleanMsg.toLowerCase();
+
+            let variant = 'info';
+            if (lower.includes('✅') || lower.includes('complete') || lower.includes('stored') || lower.includes('all fetches ok'))
+                variant = 'success';
+            else if (lower.includes('⚠') || lower.includes('error') || lower.includes('failed') || lower.includes('timeout'))
+                variant = 'warning';
+            else if (lower.includes('pipeline complete'))
+                variant = 'success';
+
+            const icon = STEP_ICONS[stepNum] || (lower.includes('fallback') ? '🤖' : '▶');
+            const name = STEP_NAMES[stepNum] || '';
+
+            return { timestamp, stepNum, icon, name, message: cleanMsg, variant };
+        }
+
+        function renderFlowBox(parsed, animate) {
+            const boxClass = `box-${parsed.variant}`;
+            const animClass = animate ? '' : ' no-anim';
+            const badgeClass = parsed.variant === 'success' ? 'step-badge-completed'
+                : parsed.variant === 'warning' ? 'step-badge-warning' : 'step-badge-running';
+
+            return `
+                <div class="flow-box ${boxClass}${animClass}">
+                    <div class="flow-box-header">
+                        <span class="flow-box-icon">${parsed.icon}</span>
+                        ${parsed.stepNum ? `<span class="flow-box-step ${badgeClass}">Step ${escapeHtml(parsed.stepNum)}</span>` : ''}
+                        <span class="flow-box-title">${parsed.name ? escapeHtml(parsed.name) : ''}</span>
+                        <span class="flow-box-ts">${escapeHtml(parsed.timestamp)}</span>
+                    </div>
+                    <div class="flow-box-body">${escapeHtml(parsed.message)}</div>
+                </div>
+            `;
+        }
+
+        function appendEntry(entry, animate = true) {
+            const output = document.getElementById('log-output');
+
+            // Remove connecting state on first entry
+            const connecting = output.querySelector('.connecting-state');
+            if (connecting) connecting.remove();
+
+            // Remove thinking indicator before adding new entry
+            const thinking = output.querySelector('.thinking-bar');
+            if (thinking) thinking.remove();
+
+            const parsed = parseLogEntry(entry);
+            stepCount++;
+
+            const div = document.createElement('div');
+            div.innerHTML = renderFlowBox(parsed, animate);
+            output.appendChild(div.firstElementChild);
+
+            // Update meta
+            document.getElementById('meta-steps').textContent = `${stepCount} steps`;
+
+            // Check for pipeline complete
+            if (entry.toLowerCase().includes('pipeline complete')) {
+                markCompleted(animate);
+            } else if (animate) {
+                // Add thinking indicator (only during live streaming)
+                const thinkDiv = document.createElement('div');
+                thinkDiv.className = 'thinking-bar';
+                thinkDiv.innerHTML = `
+                    <span class="thinking-dots"><span></span><span></span><span></span></span>
+                    <span>Processing…</span>
+                `;
+                output.appendChild(thinkDiv);
+            }
+
+            // Auto-scroll
+            if (autoScroll) {
+                output.scrollTop = output.scrollHeight;
+            }
+        }
+
+        function markCompleted(animate = true) {
+            isCompleted = true;
+            const output = document.getElementById('log-output');
+            const thinking = output.querySelector('.thinking-bar');
+            if (thinking) thinking.remove();
+
+            const banner = document.createElement('div');
+            banner.className = 'completion-banner' + (animate ? '' : ' no-anim');
+            banner.textContent = '🏁 Pipeline execution completed';
+            output.appendChild(banner);
+
+            const status = document.getElementById('live-status');
+            status.className = 'live-indicator completed';
+            status.innerHTML = '<div class="live-dot"></div><span>Completed</span>';
+
+            // Fetch and display the final answer
+            fetchFinalAnswer(animate);
+            
+            // Tell the parent admin.js that we are complete so it can refresh the outer Trace view
+            // ONLY do this if we are actively streaming (animate=true). Otherwise it causes an infinite reload loop.
+            if (animate) {
+                window.parent.postMessage({ type: 'PIPELINE_COMPLETE', runId: getRunId() }, '*');
+            }
+        }
+
+        async function fetchFinalAnswer(animate = true) {
+            const runId = getRunId();
+            try {
+                const resp = await fetch(`/admin/api/agent-runs/${runId}`);
+                if (!resp.ok) return;
+                const run = await resp.json();
+                if (!run.output_summary) return;
+
+                let data;
+                try { data = JSON.parse(run.output_summary); } catch { return; }
+
+                const debug = data.llm_debug || {};
+                const agentAnswer = debug.agent_final_answer || '';
+                const execSummary = data.executive_summary || '';
+                const answer = agentAnswer || execSummary;
+
+                if (answer) {
+                    renderFinalAnswer(answer, animate);
+                }
+            } catch (e) {
+                console.error('Failed to fetch final answer:', e);
+            }
+        }
+
+        function renderFinalAnswer(answer, animate = true) {
+            const output = document.getElementById('log-output');
+            const section = document.createElement('div');
+            section.className = 'final-answer-section' + (animate ? '' : ' no-anim');
+            section.innerHTML = `
+                <div class="final-answer-header">
+                    ✅ Agent Final Answer
+                </div>
+                <div class="final-answer-body">${escapeHtml(answer)}</div>
+            `;
+            output.appendChild(section);
+
+            if (autoScroll) {
+                output.scrollTop = output.scrollHeight;
+            }
+        }
+
+        function startElapsedTimer() {
+            elapsedTimer = setInterval(() => {
+                const elapsed = Math.round((Date.now() - startTime) / 1000);
+                document.getElementById('meta-elapsed').textContent = `${elapsed}s`;
+            }, 1000);
+        }
+
+        async function loadExistingLogs() {
+            // Check if the run is already completed — load stored logs from DB
+            const runId = getRunId();
+            try {
+                const resp = await fetch(`/admin/api/agent-runs/${runId}`);
+                if (!resp.ok) return null;
+                const run = await resp.json();
+
+                if (run.status === 'completed' || run.status === 'failed') {
+                    // Run is done — load from physical log file instead of output_summary
+                    clearInterval(elapsedTimer);
+
+                    try {
+                        const logResp = await fetch(`/admin/api/agent-runs/${runId}/log-file`);
+                        if (logResp.ok) {
+                            const logData = await logResp.json();
+                            const logs = logData.logs || [];
+                            if (logs.length > 0) {
+                                logs.forEach(entry => appendEntry(entry, false));
+                            } else {
+                                // If log file is empty, remove connecting state explicitly
+                                const output = document.getElementById('log-output');
+                                const connecting = output.querySelector('.connecting-state');
+                                if (connecting) connecting.remove();
+                            }
+                        }
+                    } catch (e) {
+                        console.error("Failed to load physical log file:", e);
+                    }
+                    
+                    // Fallback to explicitly remove connecting state if still present
+                    const output = document.getElementById('log-output');
+                    const connecting = output.querySelector('.connecting-state');
+                    if (connecting) connecting.remove();
+
+                    if (!isCompleted) {
+                        markCompleted(false);
+                    }
+
+                    // Show elapsed from actual run data
+                    if (run.duration_ms) {
+                        document.getElementById('meta-elapsed').textContent = `${(run.duration_ms / 1000).toFixed(1)}s`;
+                    }
+
+                    return run; // Signal: don't start SSE
+                }
+
+                return null; // Still running — proceed to SSE
+            } catch {
+                return null;
+            }
+        }
+
+        function startSSE() {
+            const runId = getRunId();
+
+            const status = document.getElementById('live-status');
+            status.innerHTML = '<div class="live-dot"></div><span>Live</span>';
+
+            const evtSource = new EventSource(`/admin/api/agent-runs/${runId}/live-logs`);
+
+            evtSource.onmessage = function(event) {
+                const data = event.data;
+
+                if (data === '[STREAM_END]' || data === '[DONE]') {
+                    evtSource.close();
+                    if (!isCompleted) {
+                        fetchFinalAnswer();
+                        status.className = 'live-indicator completed';
+                        status.innerHTML = '<div class="live-dot"></div><span>Stream ended</span>';
+                    }
+                    return;
+                }
+
+                if (data.startsWith('[ERROR]')) {
+                    status.className = 'live-indicator error';
+                    status.innerHTML = '<div class="live-dot"></div><span>Error</span>';
+                    return;
+                }
+
+                appendEntry(data);
+            };
+
+            evtSource.onerror = function() {
+                evtSource.close();
+                if (!isCompleted) {
+                    status.className = 'live-indicator completed';
+                    status.innerHTML = '<div class="live-dot"></div><span>Disconnected</span>';
+                }
+            };
+
+            // Detect manual scroll to disable auto-scroll
+            const output = document.getElementById('log-output');
+            output.addEventListener('scroll', () => {
+                const atBottom = output.scrollHeight - output.scrollTop - output.clientHeight < 60;
+                autoScroll = atBottom;
+            });
+        }
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            startElapsedTimer();
+
+            // First try loading existing logs (for completed runs)
+            const existingRun = await loadExistingLogs();
+            if (!existingRun) {
+                // Run is still active — start SSE streaming
+                startSSE();
+            }
+        });
+    </script>
+</body>
+</html>

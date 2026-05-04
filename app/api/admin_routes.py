@@ -39,6 +39,88 @@ async def admin_dashboard(user: AdminUser = Depends(get_current_user)):
         return HTMLResponse(content=f.read())
 
 
+@router.get("/admin/trace/{run_id}/logs", response_class=HTMLResponse)
+async def trace_logs_page(run_id: str):
+    """Serve the terminal-styled trace logs page for iframe embedding."""
+    with open("app/admin/templates/trace_logs.html", "r", encoding="utf-8") as f:
+        return HTMLResponse(content=f.read())
+
+
+@router.get("/admin/trace/{run_id}/task-execution", response_class=HTMLResponse)
+async def task_execution_page(run_id: str):
+    """Serve the task execution trace viewer page for iframe embedding."""
+    with open("app/admin/templates/task_execution.html", "r", encoding="utf-8") as f:
+        return HTMLResponse(content=f.read())
+
+
+@router.get("/admin/trace/{run_id}/crew-execution", response_class=HTMLResponse)
+async def crew_execution_page(run_id: str):
+    """Serve the crew execution log viewer page for iframe embedding."""
+    with open("app/admin/templates/crew_execution.html", "r", encoding="utf-8") as f:
+        return HTMLResponse(content=f.read())
+
+
+@router.get("/admin/trace/{run_id}/live-execution", response_class=HTMLResponse)
+async def live_execution_page(run_id: str):
+    """Serve the live execution viewer page for iframe embedding."""
+    with open("app/admin/templates/live_execution.html", "r", encoding="utf-8") as f:
+        return HTMLResponse(content=f.read())
+
+
+@router.get("/admin/api/agent-runs/{run_id}/live-logs")
+async def stream_live_logs(run_id: str):
+    """SSE endpoint that streams live execution logs from Redis."""
+    import asyncio
+    import redis.asyncio as aioredis
+    from starlette.responses import StreamingResponse
+
+    async def event_generator():
+        try:
+            r = aioredis.from_url(settings.redis_url, decode_responses=True)
+            key = f"flow:live:{run_id}"
+            last_index = 0
+            idle_count = 0
+
+            while True:
+                # Fetch any new entries since last_index
+                entries = await r.lrange(key, last_index, -1)
+                if entries:
+                    for entry in entries:
+                        yield f"data: {entry}\n\n"
+                        last_index += 1
+                    idle_count = 0
+                else:
+                    idle_count += 1
+
+                # After 120 idle polls (~3 min), stop streaming
+                if idle_count > 120:
+                    yield "data: [STREAM_END]\n\n"
+                    break
+
+                await asyncio.sleep(1.5)
+
+            await r.close()
+        except Exception as e:
+            yield f"data: [ERROR] {str(e)}\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+@router.get("/admin/api/agent-runs/{run_id}/log-file")
+async def get_agent_run_log_file(run_id: str):
+    """Fetch the physical log file lines for a given agent run."""
+    import os
+    log_file = f"app/logs/agent_runs/{run_id}.log"
+    if not os.path.exists(log_file):
+        return {"logs": []}
+    try:
+        with open(log_file, "r", encoding="utf-8") as f:
+            lines = [line.strip() for line in f if line.strip()]
+        return {"logs": lines}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to read log file: {e}")
+
+
 # ────────────────────────────────────────────────────────────────────────────
 # Authentication endpoints
 # ────────────────────────────────────────────────────────────────────────────
@@ -333,16 +415,26 @@ async def list_agent_runs(
     status_filter: str | None = None,
     agent_name: str | None = None,
     request_id: str | None = None,
+    pipeline_type: str | None = None,
     user: AdminUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """List agent runs grouped by enrichment request (job)."""
+    # Map pipeline_type to agent name filter
+    filter_agent_name = agent_name
+    exclude_agent = None
+    if pipeline_type == "workflow":
+        filter_agent_name = "workflow_pipeline"
+    elif pipeline_type == "crew":
+        exclude_agent = "workflow_pipeline"
+
     grouped = await repo.list_agent_runs_grouped(
-        db, limit=limit, offset=offset, status=status_filter, agent_name=agent_name,
-        exclude_agent_name=None,
+        db, limit=limit, offset=offset, status=status_filter, agent_name=filter_agent_name,
+        exclude_agent_name=exclude_agent,
         request_id=uuid.UUID(request_id) if request_id else None,
     )
     return grouped
+
 
 
 @router.get("/admin/api/agent-runs/{run_id}")
